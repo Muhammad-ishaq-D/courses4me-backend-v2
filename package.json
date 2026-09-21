@@ -2,17 +2,18 @@
   "name": "courses4me-backend",
   "version": "1.0.0",
   "description": "Courses4Me backend v2 — Node.js + Express + MySQL API (customer portal, admin panel)",
-  "main": "src/server.js",
+  "main": "index.js",
   "scripts": {
-    "start": "node src/server.js",
+    "start": "node index.js",
+    "build": "exit 0",
     "dev": "nodemon src/server.js",
     "test": "jest",
+    "check": "npm audit --omit=dev && npm test",
     "migrate": "knex migrate:latest",
     "migrate:status": "knex migrate:status",
     "migrate:make": "knex migrate:make",
     "seed:admin": "node scripts/create_admin.js",
-    "postman:auth": "node scripts/update_postman_auth.js",
-    "check": "npm audit --omit=dev && npm test"
+    "postman:auth": "node scripts/update_postman_auth.js"
   },
   "keywords": [
     "express",
@@ -61,5 +62,8 @@
       "<rootDir>/tests/setup.js"
     ],
     "clearMocks": true
+  },
+  "engines": {
+    "node": ">=18.0.0"
   }
 }
