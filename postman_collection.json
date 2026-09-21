@@ -1040,12 +1040,12 @@
   "variable": [
     {
       "key": "hostUrl",
-      "value": "http://localhost:5000",
+      "value": "http://api-mysql.courses4me.co.uk",
       "type": "string"
     },
     {
       "key": "baseUrl",
-      "value": "http://localhost:5000/api",
+      "value": "http://api-mysql.courses4me.co.uk/api",
       "type": "string"
     },
     {
