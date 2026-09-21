@@ -1,60 +1,61 @@
 const dotenv = require('dotenv');
-const connectDB = require('./config/db');
-const startCronJobs = require('./utils/cronJobs');
 
-// Load env vars
-dotenv.config();
+// Load environment variables before requiring other modules
+dotenv.config({ quiet: true });
 
-if (!process.env.JWT_SECRET) {
-    throw new Error('JWT_SECRET is required');
-}
-
-if (!process.env.OTP_SECRET) {
-    throw new Error('OTP_SECRET is required');
-}
-
-// Connect to database
-connectDB();
-
-// Initialize cron jobs
-startCronJobs();
-
+const logger = require('./utils/logger');
+const db = require('./config/db');
 const app = require('./app');
 
 const PORT = process.env.PORT || 5000;
 
-console.log('Environment Debugging:');
-console.log('Available Env Keys:', Object.keys(process.env).join(', '));
-if (process.env.MONGODB_URI) {
-    console.log('MONGODB_URI is present in environment.');
-} else {
-    console.warn('CRITICAL WARNING: MONGODB_URI is MISSING from environment!');
-}
-
-// Start server immediately so it doesn't 503 while connecting to DB
+// Start listening immediately so the host never sees a 503 while the DB pool
+// warms up; the connection check runs alongside.
 const server = app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
-    console.log('Attempting to connect to MongoDB...');
+  logger.info('==================================================');
+  logger.info(` Courses4Me Backend v2 running on port ${PORT}`);
+  logger.info(`  Environment: ${process.env.NODE_ENV || 'development'}`);
+  logger.info(`  Started At: ${new Date().toISOString()}`);
+  logger.info(`  Process ID: ${process.pid}`);
+  logger.info(`  Health Check URL: http://localhost:${PORT}/health`);
+  logger.info('==================================================');
 
-    // Connect to database AFTER starting server
-    connectDB().then(() => {
-        console.log('Database connection logic finished.');
-        const initBookingCron = require('./services/bookingCron');
-        initBookingCron();
-        const initWeeklyReportCron = require('./services/weeklyReportCron');
-        initWeeklyReportCron();
-    });
+  db.checkConnection().then(() => {
+    const CronService = require('./services/cronService');
+    CronService.init();
+  });
 });
 
-// Handle unhandled promise rejections
-process.on('unhandledRejection', (err, promise) => {
-    console.error(`UNHANDLED REJECTION: ${err.message}`);
-    if (err.stack) console.error(err.stack);
-    // Don't exit process in production unless absolutely necessary
-});
+// Errors that mean the process can never serve traffic. Anything else is
+// treated as recoverable so a single bad request or a dropped DB socket
+// cannot take the whole API offline.
+const FATAL_CODES = ['EADDRINUSE', 'EACCES'];
+const isFatal = (err) => FATAL_CODES.includes(err && err.code);
 
-// Handle uncaught exceptions
 process.on('uncaughtException', (err) => {
-    console.error(`UNCAUGHT EXCEPTION: ${err.message}`);
-    if (err.stack) console.error(err.stack);
+  logger.error('UNCAUGHT EXCEPTION:', err && err.name, err && err.message);
+  logger.error(err && err.stack);
+  if (isFatal(err)) {
+    logger.error('Error is unrecoverable. Shutting down server...');
+    process.exit(1);
+  }
+  logger.error('Error is recoverable. Server is staying up.');
 });
+
+process.on('unhandledRejection', (reason) => {
+  logger.error('UNHANDLED REJECTION:', reason && reason.message ? reason.message : reason);
+  logger.error(reason && reason.stack);
+  logger.error('Server is staying up.');
+});
+
+// Graceful shutdown when the host restarts or redeploys the app
+const shutdown = (signal) => {
+  logger.info(`${signal} received. Closing server gracefully...`);
+  server.close(() => {
+    db.destroy().finally(() => process.exit(0));
+  });
+  setTimeout(() => process.exit(0), 10000).unref(); // never hang on open sockets
+};
+
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));

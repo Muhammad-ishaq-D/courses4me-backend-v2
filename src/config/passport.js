@@ -1,137 +1,95 @@
 const passport = require('passport');
 const GoogleStrategy = require('passport-google-oauth20').Strategy;
 const FacebookStrategy = require('passport-facebook').Strategy;
-const User = require('../models/User');
+const UserModel = require('../models/userModel');
 const notifyAdmins = require('../utils/notifyAdmins');
+const logger = require('../utils/logger');
 
-// ─── Google Strategy ─────────────────────────────────────────────────────────
-passport.use(
-  new GoogleStrategy(
-    {
-      clientID: process.env.GOOGLE_CLIENT_ID || 'placeholder',
-      clientSecret: process.env.GOOGLE_CLIENT_SECRET || 'placeholder',
-      callbackURL: '/api/auth/google/callback',
-      proxy: true,
-    },
-    async (accessToken, refreshToken, profile, done) => {
-      try {
-        const email = profile.emails?.[0]?.value;
-        const profileImage = profile.photos?.[0]?.value || '';
+/**
+ * Shared social sign-in resolution:
+ *   1. returning user (provider id already linked)          -> that user
+ *   2. same email registered with password / other provider -> link provider
+ *   3. brand-new                                            -> create customer
+ * Returns the DB row; authRoutes signs the JWT from it.
+ */
+async function resolveSocialUser({ provider, providerId, email, displayName, profileImage }) {
+  const idColumn = provider === 'google' ? 'googleId' : 'facebookId';
+  const findByProviderId = provider === 'google' ? UserModel.findByGoogleId : UserModel.findByFacebookId;
 
-        // 1. Find by Google ID first (returning user)
-        let user = await User.findOne({ googleId: profile.id });
-        if (user) {
-          return done(null, user);
-        }
+  let user = await findByProviderId(providerId);
+  if (user) return user;
 
-        // 2. Find by email — this means they registered with email/password before
-        if (email) {
-          user = await User.findOne({ email: email.toLowerCase().trim() });
-          if (user) {
-            // Link Google provider to the existing account
-            user.googleId = profile.id;
-            if (!user.profileImage && profileImage) user.profileImage = profileImage;
-            await user.save({ validateBeforeSave: false });
-            return done(null, user);
-          }
-        }
-
-        // 3. Brand new user — create account
-        user = await User.create({
-          googleId: profile.id,
-          name: profile.displayName || 'Google User',
-          email: email ? email.toLowerCase().trim() : `google_${profile.id}@noemail.com`,
-          profileImage,
-        });
-
-        await notifyAdmins({
-          settingKey: 'userRegistration',
-          title: 'New User Registration',
-          message: `${user.name} (${user.email}) just signed up via Google.`,
-          type: 'user'
-        });
-
-        return done(null, user);
-      } catch (err) {
-        console.error('[Passport Google] Error:', err);
-        return done(err, null);
-      }
+  const normalizedEmail = email ? email.toLowerCase().trim() : null;
+  if (normalizedEmail) {
+    user = await UserModel.findByEmail(normalizedEmail);
+    if (user) {
+      const patch = { [idColumn]: providerId };
+      if (!user.profile_image && profileImage) patch.profileImage = profileImage;
+      await UserModel.update(user.id, patch);
+      return UserModel.findById(user.id);
     }
-  )
-);
+  }
 
-// ─── Facebook Strategy ────────────────────────────────────────────────────────
-passport.use(
-  new FacebookStrategy(
-    {
-      clientID: process.env.FACEBOOK_APP_ID || 'placeholder',
-      clientSecret: process.env.FACEBOOK_APP_SECRET || 'placeholder',
-      callbackURL: '/api/auth/facebook/callback',
-      profileFields: ['id', 'displayName', 'photos', 'email'],
-      proxy: true,
-    },
-    async (accessToken, refreshToken, profile, done) => {
-      try {
-        const email = profile.emails?.[0]?.value;
-        const profileImage = profile.photos?.[0]?.value || '';
+  // The provider may withhold the email (user denied permission): use a placeholder
+  const finalEmail = normalizedEmail || `${provider}_${providerId}@noemail.com`;
+  const name = displayName || (provider === 'google' ? 'Google User' : 'Facebook User');
+  const id = await UserModel.create({
+    [idColumn]: providerId,
+    name,
+    email: finalEmail,
+    profileImage: profileImage || null,
+    role: 'customer'
+  });
+  await notifyAdmins({
+    settingKey: 'userRegistration',
+    title: 'New User Registration',
+    message: `${name} (${finalEmail}) just signed up via ${provider === 'google' ? 'Google' : 'Facebook'}.`,
+    type: 'user'
+  });
 
-        // 1. Find by Facebook ID first (returning user)
-        let user = await User.findOne({ facebookId: profile.id });
-        if (user) {
-          return done(null, user);
-        }
+  return UserModel.findById(id);
+}
 
-        // 2. Find by email — link Facebook to existing account
-        if (email) {
-          user = await User.findOne({ email: email.toLowerCase().trim() });
-          if (user) {
-            user.facebookId = profile.id;
-            if (!user.profileImage && profileImage) user.profileImage = profileImage;
-            await user.save({ validateBeforeSave: false });
-            return done(null, user);
-          }
-        }
+const verify = (provider) => async (accessToken, refreshToken, profile, done) => {
+  try {
+    const user = await resolveSocialUser({
+      provider,
+      providerId: profile.id,
+      email: profile.emails?.[0]?.value,
+      displayName: profile.displayName,
+      profileImage: profile.photos?.[0]?.value || ''
+    });
+    return done(null, user);
+  } catch (err) {
+    logger.error(`[Passport ${provider}] Error:`, err);
+    return done(err, null);
+  }
+};
 
-        // 3. Brand new user — create account
-        // Facebook may not provide email (user denied permission), use a placeholder
-        const fallbackEmail = email
-          ? email.toLowerCase().trim()
-          : `facebook_${profile.id}@noemail.com`;
+passport.use(new GoogleStrategy({
+  clientID: process.env.GOOGLE_CLIENT_ID || 'placeholder',
+  clientSecret: process.env.GOOGLE_CLIENT_SECRET || 'placeholder',
+  callbackURL: '/api/auth/google/callback',
+  proxy: true
+}, verify('google')));
 
-        user = await User.create({
-          facebookId: profile.id,
-          name: profile.displayName || 'Facebook User',
-          email: fallbackEmail,
-          profileImage,
-        });
+passport.use(new FacebookStrategy({
+  clientID: process.env.FACEBOOK_APP_ID || 'placeholder',
+  clientSecret: process.env.FACEBOOK_APP_SECRET || 'placeholder',
+  callbackURL: '/api/auth/facebook/callback',
+  profileFields: ['id', 'displayName', 'photos', 'email'],
+  proxy: true
+}, verify('facebook')));
 
-        await notifyAdmins({
-          settingKey: 'userRegistration',
-          title: 'New User Registration',
-          message: `${user.name} (${user.email}) just signed up via Facebook.`,
-          type: 'user'
-        });
-
-        return done(null, user);
-      } catch (err) {
-        console.error('[Passport Facebook] Error:', err);
-        return done(err, null);
-      }
-    }
-  )
-);
-
-passport.serializeUser((user, done) => {
-  done(null, user.id);
-});
-
+// Stateless JWT flow (session: false); kept for passport's API completeness.
+passport.serializeUser((user, done) => done(null, user.id));
 passport.deserializeUser(async (id, done) => {
   try {
-    const user = await User.findById(id);
-    done(null, user);
+    done(null, await UserModel.findById(id));
   } catch (err) {
     done(err, null);
   }
 });
 
 module.exports = passport;
+module.exports.resolveSocialUser = resolveSocialUser;

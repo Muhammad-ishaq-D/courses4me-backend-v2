@@ -1,9 +1,7 @@
-# Environment variables
+# Secrets — .env holds live API keys; never commit it
 .env
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
+.env.*
+!.env.example
 
 # Dependencies
 node_modules/
@@ -11,26 +9,18 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
-# IDE and editor files
+# IDE / OS
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
 .DS_Store
-
-# OS files
 Thumbs.db
 
-# Logs
+# Logs & temp
 logs/
 *.log
-
-# Optional npm cache directory
-.npm
-
-# Temporary files
 tmp/
 temp/
-
-.env
+coverage/

@@ -1,42 +1,65 @@
 {
   "name": "courses4me-backend",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "Courses4Me backend v2 — Node.js + Express + MySQL API (customer portal, admin panel)",
+  "main": "src/server.js",
   "scripts": {
-    "start": "node index.js",
+    "start": "node src/server.js",
     "dev": "nodemon src/server.js",
-    "build": "exit 0",
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "seed:data": "node seedCoursesLocations.js",
-    "seed:data:fresh": "node seedCoursesLocations.js --fresh"
+    "test": "jest",
+    "migrate": "knex migrate:latest",
+    "migrate:status": "knex migrate:status",
+    "migrate:make": "knex migrate:make",
+    "seed:admin": "node scripts/create_admin.js",
+    "postman:auth": "node scripts/update_postman_auth.js",
+    "check": "npm audit --omit=dev && npm test"
   },
-  "keywords": [],
-  "author": "",
+  "keywords": [
+    "express",
+    "mysql",
+    "knex",
+    "jwt",
+    "courses"
+  ],
+  "author": "CodeHaven Solutions",
   "license": "ISC",
   "type": "commonjs",
   "devDependencies": {
-    "nodemon": "^3.1.14"
+    "jest": "^29.7.0",
+    "nodemon": "^3.1.14",
+    "supertest": "^7.2.2"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
-    "cloudinary": "^1.41.3",
+    "cloudinary": "^2.11.0",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
     "express-rate-limit": "^8.5.2",
     "express-validator": "^7.3.2",
     "helmet": "^8.1.0",
+    "joi": "^17.13.8",
     "jsonwebtoken": "^9.0.3",
-    "mongoose": "^9.4.1",
+    "knex": "^3.3.0",
     "morgan": "^1.10.1",
     "multer": "^2.1.1",
     "multer-storage-cloudinary": "^4.0.0",
+    "mysql2": "^3.24.4",
     "node-cron": "^4.2.1",
-    "nodemailer": "^8.0.7",
+    "nodemailer": "^10.0.10",
     "passport": "^0.7.0",
     "passport-facebook": "^3.0.0",
     "passport-google-oauth20": "^2.0.0",
     "stripe": "^22.0.2"
+  },
+  "jest": {
+    "testEnvironment": "node",
+    "testMatch": [
+      "**/tests/**/*.test.js"
+    ],
+    "setupFiles": [
+      "<rootDir>/tests/setup.js"
+    ],
+    "clearMocks": true
   }
 }

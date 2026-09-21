@@ -1,471 +1,352 @@
-const jwt = require('jsonwebtoken');
-const crypto = require('crypto');
-const User = require('../models/User');
-const Booking = require('../models/Booking');
+const UserModel = require('../models/userModel');
 const cloudinary = require('../config/cloudinary');
 const notifyAdmins = require('../utils/notifyAdmins');
+const tableExists = require('../utils/tableExists');
+const db = require('../config/db');
+const { signToken, deviceFingerprint } = require('../services/tokenService');
+const { isAdminRole, notifyPasswordChanged } = require('../services/passwordResetService');
+const { bookingStatsFor } = require('../services/userStatsService');
+const lockout = require('../services/loginLockoutService');
+const audit = require('../services/auditService');
 
-const ADMIN_ROLES = ['admin', 'editor'];
-
-// Hash of user-agent + IP, used to recognize devices an admin has logged in from before.
-const getDeviceFingerprint = (req) => {
-    const userAgent = req.headers['user-agent'] || 'unknown';
-    const ip = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.ip || 'unknown';
-    const fingerprint = crypto.createHash('sha256').update(`${userAgent}|${ip}`).digest('hex');
-    return { fingerprint, userAgent, ip };
+const socialProvidersOf = (row) => {
+  const providers = [];
+  if (row.google_id) providers.push('Google');
+  if (row.facebook_id) providers.push('Facebook');
+  return providers;
 };
 
-// @desc    Authenticate user & get token
-// @route   POST /api/auth/login
-// @access  Public
-exports.login = async (req, res) => {
-    const { email, password } = req.body;
+/** Full user for profile/admin responses, with the activity timeline attached. */
+async function userWithActivity(row) {
+  const activityHistory = await UserModel.getActivity(row.id);
+  return UserModel.toPublic(row, { activityHistory });
+}
 
+const AuthController = {
+  // @desc    Authenticate user & get token
+  // @route   POST /api/auth/login, POST /api/admin/auth/login
+  // @access  Public
+  async login(req, res, next) {
     try {
-        // Check for user
-        const user = await User.findOne({ email: email?.toLowerCase().trim() }).select('+password');
+      const { email, password } = req.body;
 
-        if (!user) {
-            return res.status(401).json({ success: false, message: 'Invalid credentials' });
-        }
+      const user = await UserModel.findByEmail(email);
+      if (!user) {
+        audit.record(req, { action: audit.ACTIONS.LOGIN_FAILED, success: false, details: 'unknown email' });
+        return res.status(401).json({ success: false, message: 'Invalid credentials' });
+      }
 
-        // Detect social-only accounts (no password set)
-        if (!user.password) {
-            const providers = [];
-            if (user.googleId) providers.push('Google');
-            if (user.facebookId) providers.push('Facebook');
-            const providerList = providers.join(' or ');
-            return res.status(401).json({
-                success: false,
-                message: `This account was created via ${providerList || 'a social provider'}. Please sign in using ${providerList || 'that method'}, or use "Forgot Password" to create an email password.`,
-                socialProvider: providers[0]?.toLowerCase() || null,
-            });
-        }
-
-        // Check if password matches
-        const isMatch = await user.matchPassword(password);
-
-        if (!isMatch) {
-            return res.status(401).json({ success: false, message: 'Invalid credentials' });
-        }
-
-        // Check if account is active
-        if (user.status === 'suspended' || user.status === 'blocked') {
-            return res.status(403).json({ 
-                success: false, 
-                message: `Your account has been ${user.status}. Reason: ${user.statusReason || 'Please contact support.'}` 
-            });
-        }
-
-        // Update last login
-        user.lastLogin = Date.now();
-        user.lastActive = Date.now();
-        user.activityHistory.push({
-            action: 'Login',
-            details: 'User logged in via email/password'
+      const lockedFor = lockout.minutesLocked(user);
+      if (lockedFor) {
+        audit.record(req, { action: audit.ACTIONS.LOGIN_LOCKED, userId: user.id, success: false });
+        return res.status(423).json({
+          success: false,
+          message: `Too many failed attempts. Account locked for ${lockedFor} more minute${lockedFor === 1 ? '' : 's'}.`,
+          error_code: 'ACCOUNT_LOCKED'
         });
+      }
 
-        // Admin/editor new-device detection (customer logins aren't tracked here)
-        if (ADMIN_ROLES.includes(user.role)) {
-            // Block admins from logging into the customer portal
-            if (!req.originalUrl.includes('/admin/')) {
-                return res.status(403).json({
-                    success: false,
-                    message: 'Admin accounts cannot log into the customer portal. Please use the admin dashboard.'
-                });
-            }
+      // Social-only accounts have no password to check
+      if (!user.password_hash) {
+        const providers = socialProvidersOf(user);
+        const providerList = providers.join(' or ');
+        return res.status(401).json({
+          success: false,
+          message: `This account was created via ${providerList || 'a social provider'}. Please sign in using ${providerList || 'that method'}, or use "Forgot Password" to create an email password.`,
+          socialProvider: providers[0]?.toLowerCase() || null
+        });
+      }
 
-            const { fingerprint, userAgent, ip } = getDeviceFingerprint(req);
-            const isKnownDevice = user.knownDevices.some(d => d.fingerprint === fingerprint);
+      if (!(await UserModel.verifyPassword(password, user.password_hash))) {
+        const { locked, attemptsLeft } = await lockout.recordFailure(user);
+        audit.record(req, { action: locked ? audit.ACTIONS.LOGIN_LOCKED : audit.ACTIONS.LOGIN_FAILED, userId: user.id, success: false, details: locked ? 'account locked' : `${attemptsLeft} attempt(s) left` });
+        if (locked) {
+          return res.status(423).json({
+            success: false,
+            message: `Too many failed attempts. Account locked for ${lockout.LOCK_MINUTES} minutes.`,
+            error_code: 'ACCOUNT_LOCKED'
+          });
+        }
+        return res.status(401).json({ success: false, message: 'Invalid credentials' });
+      }
+      await lockout.recordSuccess(user);
 
-            if (!isKnownDevice) {
-                user.knownDevices.push({ fingerprint, userAgent, ip });
-                // Cap history so the array doesn't grow unbounded
-                if (user.knownDevices.length > 20) {
-                    user.knownDevices = user.knownDevices.slice(-20);
-                }
+      if (user.status === 'suspended' || user.status === 'blocked') {
+        audit.record(req, { action: audit.ACTIONS.LOGIN_BLOCKED, userId: user.id, success: false, details: user.status });
+        return res.status(403).json({
+          success: false,
+          message: `Your account has been ${user.status}. Reason: ${user.status_reason || 'Please contact support.'}`
+        });
+      }
 
-                try {
-                    await notifyAdmins({
-                        settingKey: 'loginAlert',
-                        title: 'Admin Login - New Device',
-                        message: `${user.name} (${user.email}) logged in from a new device (IP: ${ip}).`,
-                        type: 'system'
-                    });
-                } catch (notifErr) {
-                    console.error('Notification Error (Admin Login Alert):', notifErr);
-                }
-            }
+      // Admin/editor: portal is off-limits, and logins from new devices raise an alert
+      if (isAdminRole(user.role)) {
+        if (!req.originalUrl.includes('/admin/')) {
+          audit.record(req, { action: audit.ACTIONS.LOGIN_BLOCKED, userId: user.id, success: false, details: 'admin account on customer portal' });
+          return res.status(403).json({
+            success: false,
+            message: 'Admin accounts cannot log into the customer portal. Please use the admin dashboard.'
+          });
         }
 
-        await user.save({ validateBeforeSave: false });
+        const { fingerprint, userAgent, ip } = deviceFingerprint(req);
+        if (!(await UserModel.findDevice(user.id, fingerprint))) {
+          await UserModel.addDevice(user.id, { fingerprint, userAgent, ip });
+          audit.record(req, { action: audit.ACTIONS.ADMIN_NEW_DEVICE, userId: user.id });
+          await notifyAdmins({
+            settingKey: 'loginAlert',
+            title: 'Admin Login - New Device',
+            message: `${user.name} (${user.email}) logged in from a new device (IP: ${ip}).`,
+            type: 'system'
+          });
+        }
+      }
 
-        // Create token
-        const token = jwt.sign({ id: user._id, role: user.role, tokenVersion: user.tokenVersion }, process.env.JWT_SECRET, {
-            expiresIn: '30d'
-        });
+      await UserModel.touchLogin(user.id);
+      await UserModel.addActivity(user.id, { action: 'Login', details: 'User logged in via email/password' });
+      audit.record(req, { action: audit.ACTIONS.LOGIN_SUCCESS, userId: user.id });
 
-        res.status(200).json({
-            success: true,
-            token,
-            user: {
-                id: user._id,
-                name: user.name,
-                email: user.email,
-                role: user.role,
-                phone: user.phone,
-                dob: user.dob,
-                profileImage: user.profileImage
-            }
-        });
+      res.status(200).json({
+        success: true,
+        token: signToken(user),
+        user: {
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          role: user.role,
+          phone: user.phone,
+          dob: user.dob,
+          profileImage: user.profile_image
+        }
+      });
     } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
+      next(error);
     }
-};
+  },
 
-// @desc    Check if email exists
-// @route   POST /api/auth/check-email
-// @access  Public
-exports.checkEmail = async (req, res) => {
-    const { email } = req.body;
-    if (!email) return res.status(400).json({ success: false, message: 'Email is required' });
-    
+  // @desc    Check if an email is already known (account or past booking)
+  // @route   POST /api/auth/check-email
+  // @access  Public
+  async checkEmail(req, res, next) {
     try {
-        const normalizedEmail = email.trim();
-        // Escape regex special characters
-        const escapedEmail = normalizedEmail.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        
-        // Search in User collection (any role) and Booking collection
-        const userInAuth = await User.findOne({ 
-            email: { $regex: new RegExp(`^${escapedEmail}$`, 'i') }
-        });
+      const email = req.body.email;
+      let exists = await UserModel.emailExists(email);
 
-        const userInBookings = await Booking.findOne({ 
-            "customerDetails.email": { $regex: new RegExp(`^${escapedEmail}$`, 'i') } 
-        });
+      if (!exists && (await tableExists('bookings'))) {
+        const rows = await db.query('SELECT 1 FROM bookings WHERE LOWER(customer_email) = ? LIMIT 1', [email]);
+        exists = rows.length > 0;
+      }
 
-        res.status(200).json({
-            success: true,
-            exists: !!(userInAuth || userInBookings)
-        });
+      res.status(200).json({ success: true, exists });
     } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
+      next(error);
     }
-};
+  },
 
-// @desc    Register user (for testing/initial setup)
-// @route   POST /api/auth/register
-// @access  Public
-exports.register = async (req, res) => {
-    const { name, email, password, role } = req.body;
-
+  // @desc    Register user
+  // @route   POST /api/auth/register
+  // @access  Public
+  async register(req, res, next) {
     try {
-        const normalizedEmail = email?.toLowerCase().trim();
-        const userExists = await User.findOne({ email: normalizedEmail });
+      const { name, email, password, role } = req.body;
 
-        if (userExists) {
-            // Detect if account was created via social provider
-            const providers = [];
-            if (userExists.googleId) providers.push('Google');
-            if (userExists.facebookId) providers.push('Facebook');
-
-            if (providers.length > 0 && !userExists.password) {
-                // Social-only account — guide user to login via social or set a password
-                return res.status(400).json({
-                    success: false,
-                    message: `An account with this email already exists via ${providers.join('/')}. Please sign in using that method, or use "Forgot Password" to set an email/password.`,
-                    socialProvider: providers[0]?.toLowerCase() || null,
-                });
-            }
-
-            return res.status(400).json({ success: false, message: 'An account with this email already exists. Please sign in.' });
+      const existing = await UserModel.findByEmail(email);
+      if (existing) {
+        const providers = socialProvidersOf(existing);
+        if (providers.length && !existing.password_hash) {
+          return res.status(400).json({
+            success: false,
+            message: `An account with this email already exists via ${providers.join('/')}. Please sign in using that method, or use "Forgot Password" to set an email/password.`,
+            socialProvider: providers[0]?.toLowerCase() || null
+          });
         }
+        return res.status(400).json({ success: false, message: 'An account with this email already exists. Please sign in.' });
+      }
 
-        const user = await User.create({
-            name,
-            email: normalizedEmail,
-            password,
-            role,
-            activityHistory: [{
-                action: 'Registration',
-                details: `Account created with role: ${role}`
-            }]
-        });
+      const id = await UserModel.create({
+        name,
+        email,
+        role,
+        passwordHash: await UserModel.hashPassword(password)
+      });
+      await UserModel.addActivity(id, { action: 'Registration', details: `Account created with role: ${role}` });
+      audit.record(req, { action: audit.ACTIONS.REGISTER, userId: id });
 
-        const notifyAdmins = require('../utils/notifyAdmins');
-        await notifyAdmins({
-            settingKey: 'userRegistration',
-            title: 'New User Registration',
-            message: `${user.name} (${user.email}) just created an account.`,
-            type: 'user'
-        });
+      await notifyAdmins({
+        settingKey: 'userRegistration',
+        title: 'New User Registration',
+        message: `${name} (${email}) just created an account.`,
+        type: 'user'
+      });
 
-        res.status(201).json({
-            success: true,
-            message: 'User registered successfully'
-        });
+      res.status(201).json({ success: true, message: 'User registered successfully' });
     } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
+      next(error);
     }
-};
+  },
 
-// @desc    Get current logged in user
-// @route   GET /api/auth/me
-// @access  Private
-exports.getMe = async (req, res) => {
+  // @desc    Get current logged in user
+  // @route   GET /api/auth/me
+  // @access  Private
+  async getMe(req, res, next) {
     try {
-        const user = await User.findById(req.user.id);
-        res.status(200).json({
-            success: true,
-            data: user
-        });
+      const row = await UserModel.findById(req.user.id);
+      res.status(200).json({ success: true, data: row ? await userWithActivity(row) : null });
     } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
+      next(error);
     }
-};
+  },
 
-// @desc    Update user profile
-// @route   PUT /api/auth/updatedetails
-// @access  Private
-exports.updateDetails = async (req, res) => {
+  // @desc    Update user profile
+  // @route   PUT /api/auth/updatedetails
+  // @access  Private
+  async updateDetails(req, res, next) {
     try {
-        // Only update fields that were actually provided — otherwise a partial
-        // update (e.g. changing just the profile photo) would overwrite required
-        // fields like name/email with undefined and fail validation on save.
-        const fieldsToUpdate = {};
-        ['name', 'email', 'phone', 'jobTitle', 'bio'].forEach((field) => {
-            if (req.body[field] !== undefined) {
-                fieldsToUpdate[field] = req.body[field];
-            }
+      // Only update fields that were actually provided
+      const fields = {};
+      for (const key of ['name', 'email', 'phone', 'jobTitle', 'bio']) {
+        if (req.body[key] !== undefined) fields[key] = req.body[key];
+      }
+
+      // Base64 images are uploaded to Cloudinary; URLs are stored as-is
+      if (req.body.profileImage && req.body.profileImage.startsWith('data:image')) {
+        const upload = await cloudinary.uploader.upload(req.body.profileImage, {
+          folder: 'courses4me/profiles',
+          width: 500,
+          height: 500,
+          crop: 'fill'
         });
+        fields.profileImage = upload.secure_url;
+      } else if (req.body.profileImage) {
+        fields.profileImage = req.body.profileImage;
+      }
 
-        // Handle profile image upload to Cloudinary if provided as base64
-        if (req.body.profileImage && req.body.profileImage.startsWith('data:image')) {
-            const uploadResponse = await cloudinary.uploader.upload(req.body.profileImage, {
-                folder: 'courses4me/profiles',
-                width: 500,
-                height: 500,
-                crop: 'fill'
-            });
-            fieldsToUpdate.profileImage = uploadResponse.secure_url;
-        } else if (req.body.profileImage) {
-            // If it's already a URL, just keep it
-            fieldsToUpdate.profileImage = req.body.profileImage;
-        }
+      const user = await UserModel.findById(req.user.id);
+      if (!user) return res.status(404).json({ success: false, message: 'User not found' });
 
-        const user = await User.findById(req.user.id);
-        if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+      const changed = [];
+      if (req.body.name && req.body.name !== user.name) changed.push('Name');
+      if (req.body.email && req.body.email !== user.email) changed.push('Email');
+      if (req.body.phone && req.body.phone !== user.phone) changed.push('Phone');
 
-        // Check if important fields changed to log it
-        const changedFields = [];
-        if (req.body.name && req.body.name !== user.name) changedFields.push('Name');
-        if (req.body.email && req.body.email !== user.email) changedFields.push('Email');
-        if (req.body.phone && req.body.phone !== user.phone) changedFields.push('Phone');
+      await UserModel.update(user.id, fields);
+      if (changed.length) {
+        await UserModel.addActivity(user.id, { action: 'Profile Update', details: `Updated: ${changed.join(', ')}` });
+      }
 
-        Object.assign(user, fieldsToUpdate);
-        
-        if (changedFields.length > 0) {
-            user.activityHistory.push({
-                action: 'Profile Update',
-                details: `Updated: ${changedFields.join(', ')}`
-            });
-        }
-
-        await user.save();
-
-        res.status(200).json({
-            success: true,
-            data: user
-        });
+      const row = await UserModel.findById(user.id);
+      res.status(200).json({ success: true, data: await userWithActivity(row) });
     } catch (error) {
-        console.error('Update profile error:', error);
-        res.status(500).json({ success: false, message: error.message });
+      next(error);
     }
-};
+  },
 
-// @desc    Get user counts by role
-// @route   GET /api/auth/counts
-// @access  Private/Admin
-exports.getUserCounts = async (req, res) => {
+  // @desc    Get user counts by role
+  // @route   GET /api/auth/counts
+  // @access  Private/Admin
+  async getUserCounts(req, res, next) {
     try {
-        const customerCount = await User.countDocuments({ role: 'customer' });
-        const adminCount = await User.countDocuments({ role: 'admin' });
-        const editorCount = await User.countDocuments({ role: 'editor' });
-
-        res.status(200).json({
-            success: true,
-            counts: {
-                customer: customerCount,
-                admin: adminCount,
-                editor: editorCount,
-                total: customerCount + adminCount + editorCount
-            }
-        });
+      res.status(200).json({ success: true, counts: await UserModel.countByRole() });
     } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
+      next(error);
     }
-};
-// @desc    Update password
-// @route   PUT /api/auth/update-password
-// @access  Private
-exports.updatePassword = async (req, res) => {
+  },
+
+  // @desc    Update password
+  // @route   PUT /api/auth/update-password
+  // @access  Private
+  async updatePassword(req, res, next) {
     try {
-        const { currentPassword, newPassword } = req.body;
+      const { currentPassword, newPassword } = req.body;
+      const user = await UserModel.findById(req.user.id);
 
-        const user = await User.findById(req.user.id).select('+password');
+      if (!(await UserModel.verifyPassword(currentPassword, user.password_hash))) {
+        return res.status(401).json({ success: false, message: 'Current password is incorrect' });
+      }
 
-        // Check current password
-        if (!(await user.matchPassword(currentPassword))) {
-            return res.status(401).json({ success: false, message: 'Current password is incorrect' });
-        }
+      await UserModel.setPassword(user.id, await UserModel.hashPassword(newPassword));
+      await UserModel.addActivity(user.id, { action: 'Password Change', details: 'User manually updated their password from settings' });
+      audit.record(req, { action: audit.ACTIONS.PASSWORD_CHANGED, userId: user.id });
+      notifyPasswordChanged(user, req);
 
-        user.password = newPassword;
-        user.tokenVersion = (user.tokenVersion || 0) + 1;
-        user.activityHistory.push({
-            action: 'Password Change',
-            details: 'User manually updated their password from settings'
-        });
-        await user.save();
-
-        res.status(200).json({
-            success: true,
-            message: 'Password updated successfully'
-        });
+      res.status(200).json({ success: true, message: 'Password updated successfully' });
     } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
+      next(error);
     }
-};
+  },
 
-// @desc    Get all users (Admin only)
-// @route   GET /api/auth/users
-// @access  Private/Admin
-exports.getUsers = async (req, res) => {
+  // @desc    Get all users (Admin only)
+  // @route   GET /api/auth/users
+  // @access  Private/Admin
+  async getUsers(req, res, next) {
     try {
-        const { search, status, role } = req.query;
-        let query = {};
+      const rows = await UserModel.findAll(req.query);
 
-        if (status) query.status = status;
-        if (role) query.role = role;
-        if (search) {
-            query.$or = [
-                { name: { $regex: search, $options: 'i' } },
-                { email: { $regex: search, $options: 'i' } },
-                { phone: { $regex: search, $options: 'i' } }
-            ];
-        }
+      const ids = rows.map(r => r.id);
+      const [activity, stats] = await Promise.all([
+        UserModel.getActivityForUsers(ids),
+        bookingStatsFor(rows)
+      ]);
 
-        const users = await User.find(query).sort({ createdAt: -1 });
+      const data = rows.map(row => UserModel.toPublic(row, {
+        activityHistory: activity[row.id] || [],
+        ...stats[row.id]
+      }));
 
-        // Enrich users with booking stats
-        const usersWithStats = await Promise.all(users.map(async (user) => {
-            // Case-insensitive email search for broader matching
-            const userBookings = await Booking.find({ 
-                $or: [
-                    { user: user._id },
-                    { "customerDetails.email": { $regex: new RegExp(`^${user.email}$`, 'i') } }
-                ]
-            });
-
-            // Calculate completed courses
-            const now = new Date();
-            const completedCount = userBookings.filter(b => {
-                const endDate = b.session?.endDate || b.endDate;
-                return endDate && new Date(endDate) < now;
-            }).length;
-
-            // Calculate total spent
-            const totalSpent = userBookings.reduce((sum, b) => sum + (b.totalAmount || 0), 0);
-
-            return {
-                ...user.toObject(),
-                // Fallback for lastLogin/lastActive to createdAt for existing users
-                lastLogin: user.lastLogin || user.createdAt,
-                lastActive: user.lastActive || user.createdAt,
-                totalBookings: userBookings.length,
-                bookingCount: userBookings.length, // Matching frontend expectation
-                totalSpent: totalSpent,            // Matching frontend expectation
-                completedCourses: completedCount,
-                attendanceStatus: userBookings.some(b => b.attendance?.some(a => a.status === 'Present')) ? 'Regular' : 'New'
-            };
-        }));
-
-        res.status(200).json({
-            success: true,
-            count: usersWithStats.length,
-            data: usersWithStats
-        });
+      res.status(200).json({ success: true, count: data.length, data });
     } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
+      next(error);
     }
-};
+  },
 
-// @desc    Update user status (Admin only)
-// @route   PUT /api/auth/users/:id/status
-// @access  Private/Admin
-exports.updateUserStatus = async (req, res) => {
+  // @desc    Update user status (Admin only)
+  // @route   PUT /api/auth/users/:id/status
+  // @access  Private/Admin
+  async updateUserStatus(req, res, next) {
     try {
-        const { status, reason } = req.body;
-        const user = await User.findById(req.params.id);
+      const { status, reason } = req.body;
+      const user = await UserModel.findById(req.params.id);
+      if (!user) return res.status(404).json({ success: false, message: 'User not found' });
 
-        if (!user) {
-            return res.status(404).json({ success: false, message: 'User not found' });
-        }
+      await UserModel.update(user.id, { status, statusReason: reason || '' });
+      await UserModel.addActivity(user.id, {
+        action: 'Status Change',
+        details: `Status changed from ${user.status} to ${status}.`,
+        reason: reason || 'N/A',
+        adminName: req.user.name
+      });
+      audit.record(req, { action: audit.ACTIONS.USER_STATUS_CHANGED, userId: user.id, actorId: req.user.id, details: `${user.status} -> ${status}` });
 
-        const oldStatus = user.status;
-        user.status = status;
-        user.statusReason = reason || '';
-        
-        user.activityHistory.push({
-            action: 'Status Change',
-            details: `Status changed from ${oldStatus} to ${status}.`,
-            reason: reason || 'N/A',
-            adminName: req.user.name,
-            timestamp: Date.now()
-        });
-
-        await user.save();
-
-        res.status(200).json({
-            success: true,
-            message: `User status updated to ${status}`,
-            data: user
-        });
+      const row = await UserModel.findById(user.id);
+      res.status(200).json({ success: true, message: `User status updated to ${status}`, data: await userWithActivity(row) });
     } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
+      next(error);
     }
-};
+  },
 
-// @desc    Clear user activity history (Admin only)
-// @route   DELETE /api/auth/users/:id/history
-// @access  Private/Admin
-exports.clearUserHistory = async (req, res) => {
+  // @desc    Clear user activity history (Admin only)
+  // @route   DELETE /api/auth/users/:id/history
+  // @access  Private/Admin
+  async clearUserHistory(req, res, next) {
     try {
-        const user = await User.findById(req.params.id);
+      const user = await UserModel.findById(req.params.id);
+      if (!user) return res.status(404).json({ success: false, message: 'User not found' });
 
-        if (!user) {
-            return res.status(404).json({ success: false, message: 'User not found' });
-        }
+      await UserModel.clearActivity(user.id);
+      await UserModel.update(user.id, { statusReason: '' });
+      await UserModel.addActivity(user.id, {
+        action: 'History Cleared',
+        details: 'All previous activity history and status reasons were cleared by admin.',
+        adminName: req.user.name
+      });
+      audit.record(req, { action: audit.ACTIONS.USER_HISTORY_CLEARED, userId: user.id, actorId: req.user.id });
 
-        // Clear history and statusReason
-        user.activityHistory = [];
-        user.statusReason = '';
-        
-        // Add a log that it was cleared
-        user.activityHistory.push({
-            action: 'History Cleared',
-            details: 'All previous activity history and status reasons were cleared by admin.',
-            adminName: req.user.name,
-            timestamp: Date.now()
-        });
-
-        await user.save();
-
-        res.status(200).json({
-            success: true,
-            message: 'User history cleared successfully',
-            data: user
-        });
+      const row = await UserModel.findById(user.id);
+      res.status(200).json({ success: true, message: 'User history cleared successfully', data: await userWithActivity(row) });
     } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
+      next(error);
     }
+  }
 };
+
+module.exports = AuthController;
