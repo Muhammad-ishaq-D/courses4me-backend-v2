@@ -13,7 +13,9 @@
     "migrate:status": "knex migrate:status",
     "migrate:make": "knex migrate:make",
     "seed:admin": "node scripts/create_admin.js",
-    "postman:auth": "node scripts/update_postman_auth.js"
+    "postman:auth": "node scripts/update_postman_auth.js",
+    "postman:courses": "node scripts/update_postman_courses.js",
+    "postman": "npm run postman:auth && npm run postman:courses"
   },
   "keywords": [
     "express",

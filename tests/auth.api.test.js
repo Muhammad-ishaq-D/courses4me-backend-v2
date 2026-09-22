@@ -123,7 +123,7 @@ describe('profile routes', () => {
   it('GET /api/auth/me returns the full public user with activity history', async () => {
     const res = await request(app).get('/api/auth/me').set('Authorization', `Bearer ${tokenFor(cathy())}`);
     expect(res.status).toBe(200);
-    expect(res.body.data).toMatchObject({ id: 3, _id: 3, email: 'cathy@example.test' });
+    expect(res.body.data).toMatchObject({ id: 3, _id: '3', email: 'cathy@example.test' });
     expect(res.body.data).toHaveProperty('billingAddress');
     expect(Array.isArray(res.body.data.activityHistory)).toBe(true);
     expect(res.body.data).not.toHaveProperty('password_hash');
@@ -341,6 +341,6 @@ describe('infrastructure', () => {
   });
 
   it('routes of modules that are not online are not mounted', async () => {
-    expect((await request(app).get('/api/courses')).status).toBe(404);
+    expect((await request(app).get('/api/bookings')).status).toBe(404);
   });
 });

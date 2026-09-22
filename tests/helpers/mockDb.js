@@ -13,7 +13,7 @@ const bcrypt = require('bcryptjs');
  *   const mockDb = createMockDb({ users: [{ id: 1, email: 'a@b.c', password: 'Secret1!', role: 'admin' }] });
  *   jest.mock('../src/config/db', () => mockDb);
  */
-function createMockDb({ users = [] } = {}) {
+function createMockDb({ users = [], courses = [] } = {}) {
   const now = () => new Date();
   const state = {
     users: [],
@@ -21,8 +21,15 @@ function createMockDb({ users = [] } = {}) {
     devices: [],
     resets: [],
     audit: [],
-    seq: { users: 0, activity: 0, devices: 0, resets: 0, audit: 0 },
-    tables: new Set(['users', 'user_activity_logs', 'user_devices', 'password_resets', 'audit_logs']),
+    courses: [],
+    courseListItems: [],
+    courseVenues: [],
+    courseSchedules: [],
+    seq: { users: 0, activity: 0, devices: 0, resets: 0, audit: 0, courses: 0, courseListItems: 0, courseVenues: 0, courseSchedules: 0 },
+    tables: new Set([
+      'users', 'user_activity_logs', 'user_devices', 'password_resets', 'audit_logs',
+      'courses', 'course_list_items', 'course_venues', 'course_venue_schedules'
+    ]),
     log: []
   };
 
@@ -55,6 +62,152 @@ function createMockDb({ users = [] } = {}) {
     return id;
   }
   users.forEach(seedUser);
+
+  function seedCourse(c) {
+    const id = c.id || nextId('courses');
+    state.seq.courses = Math.max(state.seq.courses, id);
+    const { highlights, learningPoints, targetAudience, requirements, locations, pricing, instructor, ...rest } = c;
+    state.courses.push({
+      id,
+      title: c.title || 'Test Course',
+      category: c.category || 'SIA Training',
+      subtitle: null, level: 'Level 2', duration: c.duration || '1 Day',
+      reviews_count: '1,000+', booked_count: '500+', pass_rate: '98%',
+      short_description: c.short_description || 'A short description of the course offering.',
+      full_description: c.full_description || 'Full description.',
+      guarantee_title: 'Training Guarantee', guarantee_description: 'Free exam retakes',
+      thumbnail: null,
+      base_price: c.base_price ?? 100, sale_price: null, original_price: null,
+      location_id: null, center_id: null, center_name: null,
+      instructor_name: null, instructor_title: null, instructor_bio: null, instructor_photo: null,
+      status: c.status || 'Published',
+      is_popular: c.is_popular ?? 0,
+      created_at: c.created_at ? new Date(c.created_at) : now(),
+      updated_at: now(),
+      ...rest,
+      id
+    });
+    return id;
+  }
+  courses.forEach(seedCourse);
+
+  // Handles the SQL emitted by courseModel / courseSessionService / licenseLookupService.
+  function routeCourses(q, params) {
+    // reads
+    if (/^SELECT id, title, category.* FROM courses WHERE id = \? LIMIT 1/.test(q)) {
+      const c = state.courses.find(x => x.id === Number(params[0]));
+      return c ? [{ ...c }] : [];
+    }
+    if (/^SELECT id FROM courses WHERE title LIKE \? LIMIT 1/.test(q)) {
+      const needle = String(params[0]).replace(/%/g, '').toLowerCase();
+      const c = state.courses.find(x => x.title.toLowerCase().includes(needle));
+      return c ? [{ id: c.id }] : [];
+    }
+    if (/FROM courses c( WHERE .*)? ORDER BY c\.created_at DESC/.test(q)) {
+      let rows = [...state.courses];
+      let i = 0;
+      if (/c\.category = \?/.test(q)) { const v = params[i++]; rows = rows.filter(c => c.category === v); }
+      if (/c\.status = \?/.test(q)) { const v = params[i++]; rows = rows.filter(c => c.status === v); }
+      if (/c\.title LIKE \?/.test(q)) {
+        const needle = String(params[i]).replace(/%/g, '').toLowerCase(); i += 2;
+        rows = rows.filter(c => [c.title, c.short_description].some(f => f && f.toLowerCase().includes(needle)));
+      }
+      if (/EXISTS \(SELECT 1 FROM course_venues/.test(q)) {
+        const needle = String(params[i]).replace(/%/g, '').toLowerCase(); i += 3;
+        rows = rows.filter(c => state.courseVenues.some(v => v.course_id === c.id &&
+          [v.name, v.address, v.postcode].some(f => f && f.toLowerCase().includes(needle))));
+      }
+      rows.sort((a, b) => b.created_at - a.created_at || b.id - a.id);
+      return rows.map(c => ({ ...c }));
+    }
+    if (/^SELECT category, COUNT\(\*\) AS total FROM courses/.test(q)) {
+      const rows = /WHERE status = \?/.test(q) ? state.courses.filter(c => c.status === params[0]) : state.courses;
+      const counts = {};
+      for (const c of rows) counts[c.category] = (counts[c.category] || 0) + 1;
+      return Object.entries(counts).map(([category, total]) => ({ category, total }));
+    }
+    if (/^SELECT course_id, type, value FROM course_list_items WHERE course_id IN \(\?\)/.test(q)) {
+      const ids = params[0].map(Number);
+      return state.courseListItems.filter(l => ids.includes(l.course_id))
+        .sort((a, b) => a.type.localeCompare(b.type) || a.position - b.position || a.id - b.id)
+        .map(l => ({ course_id: l.course_id, type: l.type, value: l.value }));
+    }
+    if (/FROM course_venues WHERE course_id IN \(\?\)/.test(q)) {
+      const ids = params[0].map(Number);
+      return state.courseVenues.filter(v => ids.includes(v.course_id))
+        .sort((a, b) => a.course_id - b.course_id || a.position - b.position || a.id - b.id)
+        .map(v => ({ ...v }));
+    }
+    if (/FROM course_venue_schedules WHERE course_venue_id IN \(\?\)/.test(q)) {
+      const ids = params[0].map(Number);
+      return state.courseSchedules.filter(s => ids.includes(s.course_venue_id))
+        .sort((a, b) => a.course_venue_id - b.course_venue_id || a.position - b.position || a.id - b.id)
+        .map(s => ({ ...s }));
+    }
+
+    // writes
+    if (/^INSERT INTO courses \(/.test(q)) {
+      const cols = q.match(/^INSERT INTO courses \(([^)]+)\)/)[1].split(',').map(x => x.trim());
+      const data = {}; cols.forEach((c, i) => { data[c] = params[i]; });
+      return { insertId: seedCourse(data), affectedRows: 1 };
+    }
+    if (/^INSERT INTO course_list_items/.test(q)) {
+      for (let i = 0; i < params.length; i += 4) {
+        state.courseListItems.push({ id: nextId('courseListItems'), course_id: Number(params[i]), type: params[i + 1], position: params[i + 2], value: params[i + 3] });
+      }
+      return { insertId: state.seq.courseListItems, affectedRows: params.length / 4 };
+    }
+    if (/^INSERT INTO course_venues/.test(q)) {
+      const [course_id, position, name, address, postcode, latitude, longitude, parking_main, parking_sub, commute_main, commute_sub] = params;
+      const id = nextId('courseVenues');
+      state.courseVenues.push({ id, course_id: Number(course_id), position, name, address, postcode, latitude, longitude, parking_main, parking_sub, commute_main, commute_sub });
+      return { insertId: id, affectedRows: 1 };
+    }
+    if (/^INSERT INTO course_venue_schedules/.test(q)) {
+      for (let i = 0; i < params.length; i += 8) {
+        state.courseSchedules.push({
+          id: nextId('courseSchedules'), course_venue_id: Number(params[i]), position: params[i + 1],
+          time: params[i + 2], start_date: params[i + 3], end_date: params[i + 4],
+          price: params[i + 5], seats_available: params[i + 6], availability_status: params[i + 7]
+        });
+      }
+      return { insertId: state.seq.courseSchedules, affectedRows: params.length / 8 };
+    }
+    if (/^UPDATE courses SET .* WHERE id = \?$/.test(q)) {
+      const sets = q.match(/^UPDATE courses SET (.*) WHERE id = \?$/)[1].split(',').map(x => x.trim().split(' = ')[0]);
+      const c = state.courses.find(x => x.id === Number(params[params.length - 1]));
+      if (!c) return { affectedRows: 0 };
+      sets.forEach((col, i) => { c[col] = params[i]; });
+      c.updated_at = now();
+      return { affectedRows: 1 };
+    }
+    if (/^DELETE FROM course_list_items WHERE course_id = \? AND type IN \(\?\)/.test(q)) {
+      const types = params[1];
+      const before = state.courseListItems.length;
+      state.courseListItems = state.courseListItems.filter(l => !(l.course_id === Number(params[0]) && types.includes(l.type)));
+      return { affectedRows: before - state.courseListItems.length };
+    }
+    if (/^DELETE FROM course_venues WHERE course_id = \?/.test(q)) {
+      const venueIds = state.courseVenues.filter(v => v.course_id === Number(params[0])).map(v => v.id);
+      state.courseVenues = state.courseVenues.filter(v => v.course_id !== Number(params[0]));
+      state.courseSchedules = state.courseSchedules.filter(s => !venueIds.includes(s.course_venue_id));
+      return { affectedRows: venueIds.length };
+    }
+    if (/^DELETE FROM courses WHERE id = \?/.test(q)) {
+      const id = Number(params[0]);
+      const before = state.courses.length;
+      state.courses = state.courses.filter(c => c.id !== id);
+      const removed = before - state.courses.length;
+      if (removed) {
+        state.courseListItems = state.courseListItems.filter(l => l.course_id !== id);
+        const venueIds = state.courseVenues.filter(v => v.course_id === id).map(v => v.id);
+        state.courseVenues = state.courseVenues.filter(v => v.course_id !== id);
+        state.courseSchedules = state.courseSchedules.filter(s => !venueIds.includes(s.course_venue_id));
+      }
+      return { affectedRows: removed };
+    }
+    return undefined;
+  }
 
   const userRow = (u) => u ? { ...u } : null;
   const where = (rows, fn) => rows.filter(fn);
@@ -133,6 +286,12 @@ function createMockDb({ users = [] } = {}) {
       }
       sets.forEach((c, i) => { u[c] = params[i]; });
       return { affectedRows: 1 };
+    }
+
+    // ── courses ───────────────────────────────────────────────────────────
+    if (/\bcourses?\b|course_list_items|course_venues|course_venue_schedules|course_locations/.test(q)) {
+      const handled = routeCourses(q, params);
+      if (handled !== undefined) return handled;
     }
 
     // ── activity log ──────────────────────────────────────────────────────
@@ -232,7 +391,8 @@ function createMockDb({ users = [] } = {}) {
     state,
     /** Make tableExists() report a later-module table as present. */
     addTable: (name) => state.tables.add(name),
-    findUser: (email) => state.users.find(u => u.email === String(email).toLowerCase())
+    findUser: (email) => state.users.find(u => u.email === String(email).toLowerCase()),
+    findCourse: (title) => state.courses.find(c => c.title === title)
   };
 }
 

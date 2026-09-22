@@ -9,7 +9,8 @@ mounted in `src/app.js`.
 | Module | Status |
 | --- | --- |
 | Authentication (customer, admin, portal password reset, social login, user management) | ready |
-| Locations, Courses, Course-Locations, Course-Location-Dates | pending |
+| Courses | ready |
+| Locations, Course-Locations, Course-Location-Dates | pending |
 | Licenses | pending |
 | Bookings, Stripe, booking cron | pending |
 | Jobs (listings, applications) | pending |
@@ -52,7 +53,8 @@ Schema is managed with [Knex migrations](https://knexjs.org/guide/migrations.htm
 - Instants are `DATETIME` in UTC (driver `timezone: 'Z'`, session `+00:00`) and serialise
   as ISO strings with `Z`. `DATE` columns (e.g. `users.dob`) are returned as `YYYY-MM-DD`.
 - Every table has `created_at` / `updated_at` maintained by MySQL.
-- Tables: `users`, `user_devices`, `user_activity_logs`, `password_resets`, `audit_logs`.
+- Tables: `users`, `user_devices`, `user_activity_logs`, `password_resets`, `audit_logs`,
+  `courses`, `course_list_items`, `course_venues`, `course_venue_schedules`.
 
 ## Project layout
 
@@ -66,10 +68,11 @@ src/
   controllers/           thin: validate → model/service → { success, message, data }
   models/                plain objects of raw-SQL functions
   services/              cross-cutting logic (tokenService, passwordResetService, loginLockoutService,
-                         auditService, userStatsService, cronService)
+                         auditService, userStatsService, courseSessionService, licenseLookupService,
+                         cronService)
   validators/            Joi schemas per module (+ common building blocks)
   middlewares/           authMiddleware (protect / authorize / optionalProtect), validateMiddleware,
-                         errorMiddleware, rateLimiters, requestId, upload*
+                         errorMiddleware, rateLimiters, requestId, parseJsonBody, upload*
   utils/                 logger, tableExists, sendEmail, notifyAdmins, isEmailTemplateActive
 database/                schema.sql baseline + knex migrations
 scripts/                 create_admin.js, update_postman_*.js
@@ -148,6 +151,39 @@ the Users page are zero until `bookings` exists; admin alerts (`notifyAdmins`) a
 `passwordReset` email toggle (`isEmailTemplateActive`) are no-ops / fail-open until
 `notifications` and `settings` exist.
 
+## Courses
+
+### Endpoints
+
+| Method | Path | Access | Notes |
+| --- | --- | --- | --- |
+| GET | `/api/courses` | public | `?category=&status=&search=&location=`; non-admins only ever see `Published` |
+| GET | `/api/courses/stats/categories` | public | `[{ _id: category, count }]`; published only unless admin |
+| GET | `/api/courses/:id` | public | 403 when the course is not published and the caller is not an admin |
+| POST | `/api/courses` | admin | required: `title`, `category`, `duration`, `shortDescription`, `fullDescription`, `pricing.basePrice` |
+| PUT | `/api/courses/:id` | admin | partial update (see below) |
+| DELETE | `/api/courses/:id` | admin | removes the course and its children |
+
+### Shape and storage
+
+- A course row keeps the scalars; `pricing`, `instructor` and `guarantee` are flattened into
+  prefixed columns and rebuilt as nested objects in the response.
+- The four display lists (`highlights`, `learningPoints`, `targetAudience`, `requirements`)
+  share `course_list_items`, told apart by `type` and kept in order by `position`.
+- `locations[]` are rows in `course_venues`, each with its `schedules[]` in
+  `course_venue_schedules` (`ON DELETE CASCADE` both ways).
+- `sessions` is a read-only array: the venue schedules flattened, plus the dates of the
+  scheduling module (`course_locations` → `course_location_dates`) on the listing endpoint,
+  where a date belonging to a disabled location is left out.
+- **Partial updates:** scalars change only when sent. A list or `locations` is replaced only
+  when the payload contains it, so omitting one keeps what is stored.
+- **Venue postcodes are geocoded server-side** (postcodes.io): the stored postcode is the
+  normalised one, latitude/longitude are filled in, and a postcode whose area does not match
+  the venue name is rejected with 400.
+- Both payload styles work: JSON, or `multipart/form-data` with `thumbnail` /
+  `instructorPhoto` files (nested fields then arrive as JSON strings and are parsed by
+  `parseJsonBody`).
+
 ## Authorization model
 
 | Role | Access |
@@ -173,7 +209,9 @@ and never connect to MySQL.
 `postman_collection.json` (Postman v2.1) is generated per module:
 
 ```bash
+npm run postman         # every module
 npm run postman:auth    # scripts/update_postman_auth.js — folders 0–5
+npm run postman:courses # scripts/update_postman_courses.js — folder 6
 ```
 
 Set `baseUrl`, `testEmail`/`testPassword`, `adminEmail`/`adminPassword`. Login requests

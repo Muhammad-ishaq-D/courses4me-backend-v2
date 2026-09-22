@@ -1,4 +1,5 @@
 // One entry per module.
 module.exports = {
-  auth: require('./authValidator')
+  auth: require('./authValidator'),
+  course: require('./courseValidator')
 };

@@ -1035,6 +1035,381 @@
           }
         }
       ]
+    },
+    {
+      "name": "6. Courses",
+      "description": "Public catalogue and admin course management. Writes need {{adminToken}} with the admin role. Venue postcodes are geocoded server-side, so they must be real UK postcodes that match the venue name.",
+      "item": [
+        {
+          "name": "List Courses",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/courses?category=SIA Training&status=Published&search=door&location=London",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "courses"
+              ],
+              "query": [
+                {
+                  "key": "category",
+                  "value": "SIA Training",
+                  "description": "SIA Training | Specialist | First Aid | Health & Safety | Hospitality",
+                  "disabled": true
+                },
+                {
+                  "key": "status",
+                  "value": "Published",
+                  "description": "Published | Draft | Archived (drafts need an admin token)",
+                  "disabled": true
+                },
+                {
+                  "key": "search",
+                  "value": "door",
+                  "description": "matches title and short description",
+                  "disabled": true
+                },
+                {
+                  "key": "location",
+                  "value": "London",
+                  "description": "matches venue name, address or postcode",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Without an admin token only Published courses are returned. Each course carries its lists, venues (with schedules) and a flattened `sessions` array."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Courses listed\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "    pm.expect(pm.response.json().success).to.eql(true);",
+                  "});",
+                  "var body = pm.response.json();",
+                  "if (body.data && body.data[0]) { pm.collectionVariables.set(\"courseId\", body.data[0].id); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List Courses (admin, includes drafts)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/courses",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "courses"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Courses listed\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "    pm.expect(pm.response.json().success).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Category Stats",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/courses/stats/categories",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "courses",
+                "stats",
+                "categories"
+              ]
+            },
+            "description": "Course count per category: [{ _id, count }]. Published only unless an admin token is sent."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Request succeeded\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "    pm.expect(pm.response.json().success).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Course",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/courses/{{courseId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "courses",
+                "{{courseId}}"
+              ]
+            },
+            "description": "A draft or archived course answers 403 without an admin token. An unknown id answers 404."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Request succeeded\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "    pm.expect(pm.response.json().success).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create Course",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/courses",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "courses"
+              ]
+            },
+            "description": "Required: title, category, duration, shortDescription (20+ chars), fullDescription, pricing.basePrice. Send multipart/form-data with `thumbnail` / `instructorPhoto` files to upload images instead of passing URLs; nested fields then go as JSON strings.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Door Supervisor Course\",\n  \"category\": \"SIA Training\",\n  \"subtitle\": \"SIA licence-linked qualification\",\n  \"level\": \"Level 2\",\n  \"duration\": \"4 Days\",\n  \"shortDescription\": \"Everything needed to apply for an SIA door supervisor licence.\",\n  \"fullDescription\": \"The full syllabus, assessment format and licence application steps.\",\n  \"highlights\": [\n    \"SIA approved centre\",\n    \"Exam included\"\n  ],\n  \"learningPoints\": [\n    \"Conflict management\",\n    \"Physical intervention\"\n  ],\n  \"targetAudience\": [\n    \"New entrants to the security industry\"\n  ],\n  \"requirements\": [\n    \"18 or over\",\n    \"Photo ID\"\n  ],\n  \"guarantee\": {\n    \"title\": \"Training Guarantee\",\n    \"description\": \"Free exam retakes if you don't pass first time\"\n  },\n  \"thumbnail\": \"https://res.cloudinary.com/demo/image/upload/sample.jpg\",\n  \"pricing\": {\n    \"basePrice\": 225.5,\n    \"salePrice\": 199,\n    \"originalPrice\": 275\n  },\n  \"instructor\": {\n    \"name\": \"Jane Trainer\",\n    \"title\": \"Lead Instructor\",\n    \"bio\": \"15 years in the industry\"\n  },\n  \"locations\": [\n    {\n      \"name\": \"London Centre\",\n      \"address\": \"1 Test Street, London\",\n      \"postcode\": \"SW1A 1AA\",\n      \"parkingMain\": \"Paid street parking\",\n      \"commuteMain\": \"5 min from Westminster station\",\n      \"schedules\": [\n        {\n          \"time\": \"09:00 - 17:00\",\n          \"startDate\": \"2026-11-02\",\n          \"endDate\": \"2026-11-05\",\n          \"price\": 225.5,\n          \"seatsAvailable\": 15\n        }\n      ]\n    }\n  ],\n  \"status\": \"Published\",\n  \"isPopular\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Course created\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "    pm.expect(pm.response.json().success).to.eql(true);",
+                  "});",
+                  "var body = pm.response.json();",
+                  "if (body.data && body.data.id) { pm.collectionVariables.set(\"courseId\", body.data.id); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update Course (partial)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/courses/{{courseId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "courses",
+                "{{courseId}}"
+              ]
+            },
+            "description": "Only the fields sent are changed. Sending `highlights`, `learningPoints`, `targetAudience`, `requirements` or `locations` replaces that list entirely; leaving one out keeps it.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"Draft\",\n  \"pricing\": {\n    \"basePrice\": 249\n  },\n  \"isPopular\": false\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Course updated\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "    pm.expect(pm.response.json().success).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update Course (replace venues)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/courses/{{courseId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "courses",
+                "{{courseId}}"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"locations\": [\n    {\n      \"name\": \"London Centre\",\n      \"address\": \"1 Test Street, London\",\n      \"postcode\": \"SW1A 1AA\",\n      \"parkingMain\": \"Paid street parking\",\n      \"commuteMain\": \"5 min from Westminster station\",\n      \"schedules\": [\n        {\n          \"time\": \"09:00 - 17:00\",\n          \"startDate\": \"2026-11-02\",\n          \"endDate\": \"2026-11-05\",\n          \"price\": 225.5,\n          \"seatsAvailable\": 15\n        }\n      ]\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Course updated\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "    pm.expect(pm.response.json().success).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Delete Course",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/courses/{{courseId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "courses",
+                "{{courseId}}"
+              ]
+            },
+            "description": "Removes the course with its lists, venues and schedules."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Course deleted\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "    pm.expect(pm.response.json().success).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
     }
   ],
   "variable": [
@@ -1086,6 +1461,11 @@
     {
       "key": "adminPassword",
       "value": "Admin!Pass1",
+      "type": "string"
+    },
+    {
+      "key": "courseId",
+      "value": "1",
       "type": "string"
     }
   ]

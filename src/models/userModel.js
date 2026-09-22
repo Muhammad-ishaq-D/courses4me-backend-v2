@@ -52,12 +52,15 @@ function toColumns(data) {
   return out;
 }
 
-/** Row -> API shape (camelCase, `_id` alias for the frontends). Never includes the password hash. */
+/**
+ * Row -> API shape (camelCase). `_id` is the string alias the frontends read,
+ * `id` the numeric key. Never includes the password hash.
+ */
 function toPublic(row, extras = {}) {
   if (!row) return null;
   return {
     id: row.id,
-    _id: row.id,
+    _id: String(row.id),
     name: row.name,
     email: row.email,
     role: row.role,
