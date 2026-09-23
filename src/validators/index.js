@@ -3,5 +3,6 @@ module.exports = {
   auth: require('./authValidator'),
   course: require('./courseValidator'),
   location: require('./locationValidator'),
-  courseLocation: require('./courseLocationValidator')
+  courseLocation: require('./courseLocationValidator'),
+  booking: require('./bookingValidator')
 };

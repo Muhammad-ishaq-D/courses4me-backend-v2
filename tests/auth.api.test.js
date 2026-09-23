@@ -341,6 +341,6 @@ describe('infrastructure', () => {
   });
 
   it('routes of modules that are not online are not mounted', async () => {
-    expect((await request(app).get('/api/bookings')).status).toBe(404);
+    expect((await request(app).get('/api/licenses')).status).toBe(404);
   });
 });

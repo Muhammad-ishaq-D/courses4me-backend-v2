@@ -20,8 +20,8 @@ const authRoutes = require('./routes/authRoutes');
 const adminAuthRoutes = require('./routes/adminAuthRoutes');
 const portalAuthRoutes = require('./routes/portalAuthRoutes');
 const courseRoutes = require('./routes/courseRoutes');
-// const bookingRoutes = require('./routes/bookingRoutes');
-// const stripeRoutes = require('./routes/stripeRoutes');
+const bookingRoutes = require('./routes/bookingRoutes');
+const stripeRoutes = require('./routes/stripeRoutes');
 // const notificationRoutes = require('./routes/notificationRoutes');
 // const licenseRoutes = require('./routes/licenseRoutes');
 // const jobRoutes = require('./routes/jobRoutes');
@@ -95,7 +95,7 @@ app.use(helmet({
 app.use(passport.initialize());
 
 // Stripe webhooks need the raw body, so that router is mounted before express.json()
-// app.use('/api/stripe', stripeRoutes);
+app.use('/api/stripe', stripeRoutes);
 
 // Body limits: profile updates may carry a base64 photo, everything else is small JSON
 const PROFILE_ROUTES = ['/api/auth/updatedetails', '/api/auth/profile'];
@@ -145,7 +145,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/admin/auth', adminAuthRoutes);
 app.use('/api/portal/auth', portalAuthRoutes);
 app.use('/api/courses', courseRoutes);
-// app.use('/api/bookings', bookingRoutes);
+app.use('/api/bookings', bookingRoutes);
 // app.use('/api/notifications', notificationRoutes);
 // app.use('/api/licenses', licenseRoutes);
 // app.use('/api/jobs', jobRoutes);

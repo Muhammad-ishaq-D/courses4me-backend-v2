@@ -1,6 +1,7 @@
 const cron = require('node-cron');
 const logger = require('../utils/logger');
 const PasswordResetModel = require('../models/passwordResetModel');
+const { expirePendingBookings, PAYMENT_WINDOW_MINUTES } = require('./bookingExpiryService');
 
 /**
  * Scheduled jobs. Each module registers its jobs here. Times are UTC (the
@@ -23,7 +24,16 @@ const CronService = {
       }
     });
 
-    logger.info('[CRON] scheduled: password-reset purge (03:15 UTC daily)');
+    // Bookings: cancel the ones whose payment window has closed
+    cron.schedule('* * * * *', async () => {
+      try {
+        await expirePendingBookings();
+      } catch (err) {
+        logger.error('[CRON] booking expiry failed:', err.message);
+      }
+    });
+
+    logger.info('[CRON] scheduled: password-reset purge (03:15 UTC daily), booking expiry (every minute, ' + PAYMENT_WINDOW_MINUTES + ' minute window)');
   }
 };
 

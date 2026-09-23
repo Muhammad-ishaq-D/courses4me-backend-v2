@@ -1,5 +1,6 @@
 const express = require('express');
 const CourseController = require('../controllers/courseController');
+const BookingController = require('../controllers/bookingController');
 const { protect, authorize, optionalProtect } = require('../middlewares/authMiddleware');
 const { validate } = require('../middlewares/validateMiddleware');
 const parseJsonBody = require('../middlewares/parseJsonBody');
@@ -20,6 +21,10 @@ const uploadImages = upload.fields([
 // Public routes (optional auth: an admin also sees drafts and archived courses)
 router.get('/stats/categories', optionalProtect, CourseController.getCategoryStats);
 router.get('/', optionalProtect, validate(course.list, 'query'), CourseController.getAll);
+// Declared before /:id so the literal path is not swallowed by the id route
+// The student dashboard reads its enrolled courses from the bookings module
+router.get('/user/enrolled', protect, BookingController.getUserEnrolledCourses);
+
 router.get('/:id', optionalProtect, validate(course.idParam, 'params'), CourseController.getById);
 
 // Admin routes

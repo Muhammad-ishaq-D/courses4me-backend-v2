@@ -13,7 +13,7 @@ const bcrypt = require('bcryptjs');
  *   const mockDb = createMockDb({ users: [{ id: 1, email: 'a@b.c', password: 'Secret1!', role: 'admin' }] });
  *   jest.mock('../src/config/db', () => mockDb);
  */
-function createMockDb({ users = [], courses = [], locations = [], courseLocations = [] } = {}) {
+function createMockDb({ users = [], courses = [], locations = [], courseLocations = [], bookings = [] } = {}) {
   const now = () => new Date();
   const state = {
     users: [],
@@ -31,16 +31,24 @@ function createMockDb({ users = [], courses = [], locations = [], courseLocation
     courseLocations: [],
     courseLocationDates: [],
     dateTimings: [],
+    bookings: [],
+    bookingExtensions: [],
+    bookingReschedules: [],
+    bookingAttendance: [],
+    bookingCertificates: [],
     seq: {
       users: 0, activity: 0, devices: 0, resets: 0, audit: 0,
       courses: 0, courseListItems: 0, courseVenues: 0, courseSchedules: 0,
-      locations: 0, locationGallery: 0, courseLocations: 0, courseLocationDates: 0
+      locations: 0, locationGallery: 0, courseLocations: 0, courseLocationDates: 0,
+      bookings: 0, bookingExtensions: 0, bookingReschedules: 0, bookingAttendance: 0, bookingCertificates: 0
     },
     tables: new Set([
       'users', 'user_activity_logs', 'user_devices', 'password_resets', 'audit_logs',
       'courses', 'course_list_items', 'course_venues', 'course_venue_schedules',
       'locations', 'location_facilities', 'location_gallery',
-      'course_locations', 'course_location_dates', 'course_location_date_timings'
+      'course_locations', 'course_location_dates', 'course_location_date_timings',
+      'bookings', 'booking_extension_history', 'booking_reschedule_history',
+      'booking_attendance', 'booking_certificates'
     ]),
     log: []
   };
@@ -162,6 +170,244 @@ function createMockDb({ users = [], courses = [], locations = [], courseLocation
     return id;
   }
   courseLocations.forEach(seedCourseLocation);
+
+  function seedBooking(b) {
+    const id = b.id || nextId('bookings');
+    state.seq.bookings = Math.max(state.seq.bookings, id);
+    state.bookings.push({
+      id,
+      booking_reference: b.booking_reference || ('GL-TEST' + String(id).padStart(2, '0')),
+      user_id: Number(b.user_id),
+      course_id: Number(b.course_id),
+      course_type: b.course_type || 'Course',
+      package_name: b.package_name || 'Standard',
+      session_location_name: b.session_location_name ?? 'London Centre',
+      session_branch_name: b.session_branch_name ?? 'London Centre',
+      session_schedule_id: b.session_schedule_id ?? null,
+      session_schedule_source: b.session_schedule_source ?? null,
+      session_start_date: b.session_start_date ?? '2027-01-04 09:00:00',
+      session_end_date: b.session_end_date ?? '2027-01-06 17:00:00',
+      session_time: b.session_time ?? '09:00 - 17:00',
+      session_price: b.session_price ?? 200,
+      customer_first_name: b.customer_first_name || 'Test',
+      customer_last_name: b.customer_last_name || 'Student',
+      customer_email: b.customer_email || 'student@example.test',
+      customer_phone: b.customer_phone || '07000000000',
+      customer_dob: b.customer_dob ?? null,
+      billing_postcode: 'SW1A 1AA', billing_line1: '1 Test Street', billing_line2: null, billing_city: 'London',
+      option_easy_apply: b.option_easy_apply ?? 0,
+      additional_info: b.additional_info ?? null,
+      total_amount: b.total_amount ?? 200,
+      currency: 'GBP',
+      payment_method: b.payment_method || 'card',
+      payment_status: b.payment_status || 'Pending',
+      stripe_session_id: b.stripe_session_id ?? null,
+      payment_intent_id: b.payment_intent_id ?? null,
+      status: b.status || 'PENDING',
+      lifecycle_status: b.lifecycle_status || 'Upcoming',
+      original_end_date: null,
+      progress: b.progress ?? 0,
+      refund_status: b.refund_status || 'None',
+      refund_reason: null, refund_requested_at: null, refund_processed_at: null,
+      refund_admin_notes: null, refund_id: null, refund_proof_url: null,
+      pending_reschedule_start_date: b.pending_reschedule_start_date ?? null,
+      pending_reschedule_end_date: b.pending_reschedule_end_date ?? null,
+      pending_reschedule_reason: null, pending_reschedule_status: b.pending_reschedule_status ?? null,
+      pending_reschedule_created_at: null,
+      booking_date: now(),
+      created_at: b.created_at ? new Date(b.created_at) : now(),
+      updated_at: now()
+    });
+    return id;
+  }
+  bookings.forEach(seedBooking);
+
+  // Handles the SQL emitted by bookingModel / bookingService / seatService.
+  function routeBookings(q, params) {
+    if (/FROM bookings WHERE id = \? LIMIT 1/.test(q)) {
+      const b = state.bookings.find(x => x.id === Number(params[0]));
+      return b ? [{ ...b }] : [];
+    }
+    if (/FROM bookings WHERE booking_reference = \? LIMIT 1/.test(q)) {
+      const b = state.bookings.find(x => x.booking_reference === params[0]);
+      return b ? [{ ...b }] : [];
+    }
+    if (/FROM bookings WHERE user_id = \? AND course_id = \? AND status IN \('PENDING','PAID'\) LIMIT 1/.test(q)) {
+      const b = state.bookings.find(x => x.user_id === Number(params[0]) && x.course_id === Number(params[1]) && ['PENDING', 'PAID'].includes(x.status));
+      return b ? [{ ...b }] : [];
+    }
+    if (/FROM bookings WHERE user_id = \? AND course_id = \? ORDER BY/.test(q)) {
+      return state.bookings.filter(x => x.user_id === Number(params[0]) && x.course_id === Number(params[1]))
+        .sort((a, b) => b.created_at - a.created_at || b.id - a.id).map(x => ({ ...x }));
+    }
+    if (/FROM bookings WHERE user_id = \? ORDER BY/.test(q)) {
+      return state.bookings.filter(x => x.user_id === Number(params[0]))
+        .sort((a, b) => b.created_at - a.created_at || b.id - a.id).map(x => ({ ...x }));
+    }
+    if (/FROM bookings WHERE status = 'PENDING' AND created_at < UTC_TIMESTAMP\(\) - INTERVAL \? MINUTE/.test(q)) {
+      const cutoff = Date.now() - params[0] * 60000;
+      return state.bookings.filter(x => x.status === 'PENDING' && x.created_at.getTime() < cutoff).map(x => ({ ...x }));
+    }
+    if (/^SELECT user_id, COUNT\(\*\) AS bookings/.test(q)) {
+      const ids = params[0].map(Number);
+      const map = {};
+      for (const b of state.bookings) {
+        if (!ids.includes(b.user_id)) continue;
+        map[b.user_id] = map[b.user_id] || { user_id: b.user_id, bookings: 0, spent: 0 };
+        map[b.user_id].bookings += 1;
+        if (b.payment_status === 'Paid') map[b.user_id].spent += Number(b.total_amount);
+      }
+      return Object.values(map);
+    }
+    if (/^SELECT COUNT\(\*\) AS total FROM bookings WHERE user_id = \?/.test(q)) {
+      return [{ total: state.bookings.filter(b => b.user_id === Number(params[0])).length }];
+    }
+    if (/^SELECT 1 FROM bookings WHERE LOWER\(customer_email\)/.test(q)) {
+      return state.bookings.filter(b => b.customer_email.toLowerCase() === params[0]).map(() => ({ 1: 1 }));
+    }
+    if (/FROM bookings( WHERE .*)? ORDER BY created_at DESC/.test(q)) {
+      let rows = [...state.bookings];
+      let i = 0;
+      if (/status = \?/.test(q)) { const v = params[i++]; rows = rows.filter(b => b.status === v); }
+      if (/refund_status = 'Requested'/.test(q)) rows = rows.filter(b => b.refund_status === 'Requested');
+      if (/payment_status = \?/.test(q)) { const v = params[i++]; rows = rows.filter(b => b.payment_status === v); }
+      if (/created_at >= \?/.test(q)) { const v = new Date(params[i++]); rows = rows.filter(b => b.created_at >= v); }
+      if (/created_at <= \?/.test(q)) { const v = new Date(params[i++]); rows = rows.filter(b => b.created_at <= v); }
+      return rows.sort((a, b) => b.created_at - a.created_at || b.id - a.id).map(b => ({ ...b }));
+    }
+    if (/^INSERT INTO bookings \(/.test(q)) {
+      const cols = q.match(/^INSERT INTO bookings \(([^)]+)\)/)[1].split(',').map(x => x.trim());
+      const data = {}; cols.forEach((c, i) => { data[c] = params[i]; });
+      if (state.bookings.some(b => b.booking_reference === data.booking_reference)) {
+        const e = new Error("Duplicate entry for key 'uq_bookings_reference'"); e.code = 'ER_DUP_ENTRY'; throw e;
+      }
+      return { insertId: seedBooking({ ...data, id: undefined }), affectedRows: 1 };
+    }
+    if (/^UPDATE bookings SET .* WHERE id = \?$/.test(q)) {
+      const sets = q.match(/^UPDATE bookings SET (.*) WHERE id = \?$/)[1].split(',').map(x => x.trim().split(' = ')[0]);
+      const b = state.bookings.find(x => x.id === Number(params[params.length - 1]));
+      if (!b) return { affectedRows: 0 };
+      sets.forEach((c, i) => { b[c] = params[i]; });
+      b.updated_at = now();
+      return { affectedRows: 1 };
+    }
+    if (/^DELETE FROM bookings WHERE id = \?/.test(q)) {
+      const before = state.bookings.length;
+      state.bookings = state.bookings.filter(b => b.id !== Number(params[0]));
+      return { affectedRows: before - state.bookings.length };
+    }
+    if (/^DELETE FROM bookings WHERE user_id IN \(\?\)/.test(q)) {
+      const ids = params[0].map(Number);
+      const before = state.bookings.length;
+      state.bookings = state.bookings.filter(b => !ids.includes(b.user_id));
+      return { affectedRows: before - state.bookings.length };
+    }
+
+    // history and child rows
+    if (/^INSERT INTO booking_extension_history/.test(q)) {
+      state.bookingExtensions.push({ id: nextId('bookingExtensions'), booking_id: Number(params[0]), previous_end_date: params[1], new_end_date: params[2], reason: params[3], created_at: now() });
+      return { insertId: state.seq.bookingExtensions, affectedRows: 1 };
+    }
+    if (/^INSERT INTO booking_reschedule_history/.test(q)) {
+      state.bookingReschedules.push({ id: nextId('bookingReschedules'), booking_id: Number(params[0]), previous_start_date: params[1], new_start_date: params[2], previous_end_date: params[3], new_end_date: params[4], reason: params[5], created_at: now() });
+      return { insertId: state.seq.bookingReschedules, affectedRows: 1 };
+    }
+    if (/^SELECT COUNT\(\*\) AS total FROM booking_reschedule_history WHERE booking_id = \?/.test(q)) {
+      return [{ total: state.bookingReschedules.filter(r => r.booking_id === Number(params[0])).length }];
+    }
+    if (/FROM booking_extension_history WHERE booking_id IN \(\?\)/.test(q)) {
+      const ids = params[0].map(Number);
+      return state.bookingExtensions.filter(r => ids.includes(r.booking_id)).map(r => ({ ...r }));
+    }
+    if (/FROM booking_reschedule_history WHERE booking_id IN \(\?\)/.test(q)) {
+      const ids = params[0].map(Number);
+      return state.bookingReschedules.filter(r => ids.includes(r.booking_id)).map(r => ({ ...r }));
+    }
+    if (/FROM booking_attendance WHERE booking_id IN \(\?\)/.test(q)) {
+      const ids = params[0].map(Number);
+      return state.bookingAttendance.filter(r => ids.includes(r.booking_id)).map(r => ({ ...r }));
+    }
+    if (/FROM booking_certificates WHERE booking_id IN \(\?\)/.test(q)) {
+      const ids = params[0].map(Number);
+      return state.bookingCertificates.filter(r => ids.includes(r.booking_id)).map(r => ({ ...r }));
+    }
+
+    // seatService
+    if (/^UPDATE course_location_dates SET booked_seats = booked_seats \+ 1 WHERE id = \? AND booked_seats < available_seats/.test(q)) {
+      const d = state.courseLocationDates.find(x => x.id === Number(params[0]));
+      if (!d || d.booked_seats >= d.available_seats) return { affectedRows: 0 };
+      d.booked_seats += 1;
+      return { affectedRows: 1 };
+    }
+    if (/^UPDATE course_location_dates SET booked_seats = GREATEST\(booked_seats - 1, 0\) WHERE id = \?/.test(q)) {
+      const d = state.courseLocationDates.find(x => x.id === Number(params[0]));
+      if (!d) return { affectedRows: 0 };
+      d.booked_seats = Math.max(0, d.booked_seats - 1);
+      return { affectedRows: 1 };
+    }
+    if (/^SELECT available_seats, booked_seats FROM course_location_dates WHERE id = \?/.test(q)) {
+      const d = state.courseLocationDates.find(x => x.id === Number(params[0]));
+      return d ? [{ available_seats: d.available_seats, booked_seats: d.booked_seats }] : [];
+    }
+    if (/^UPDATE course_venue_schedules SET seats_available = seats_available - 1 WHERE id = \? AND seats_available > 0/.test(q)) {
+      const sch = state.courseSchedules.find(x => x.id === Number(params[0]));
+      if (!sch || sch.seats_available <= 0) return { affectedRows: 0 };
+      sch.seats_available -= 1;
+      return { affectedRows: 1 };
+    }
+    if (/^UPDATE course_venue_schedules SET seats_available = seats_available \+ 1 WHERE id = \?/.test(q)) {
+      const sch = state.courseSchedules.find(x => x.id === Number(params[0]));
+      if (!sch) return { affectedRows: 0 };
+      sch.seats_available += 1;
+      return { affectedRows: 1 };
+    }
+    if (/^SELECT seats_available FROM course_venue_schedules WHERE id = \?/.test(q)) {
+      const sch = state.courseSchedules.find(x => x.id === Number(params[0]));
+      return sch ? [{ seats_available: sch.seats_available }] : [];
+    }
+    if (/^UPDATE course_venue_schedules SET availability_status = \? WHERE id = \?/.test(q)) {
+      const sch = state.courseSchedules.find(x => x.id === Number(params[1]));
+      if (sch) sch.availability_status = params[0];
+      return { affectedRows: sch ? 1 : 0 };
+    }
+    if (/FROM course_location_dates d JOIN course_locations cl/.test(q)) {
+      const d = state.courseLocationDates.find(x => x.id === Number(params[0]));
+      if (!d) return [];
+      const cl = state.courseLocations.find(x => x.id === d.course_location_id);
+      if (!cl) return [];
+      const loc = state.locations.find(x => x.id === cl.location_id);
+      return [{
+        id: d.id, course_location_id: d.course_location_id, start_date: d.start_date, end_date: d.end_date,
+        start_time: d.start_time, end_time: d.end_time, available_seats: d.available_seats,
+        booked_seats: d.booked_seats, timings_type: d.timings_type,
+        course_id: cl.course_id, price: cl.price, location_id: cl.location_id, location_name: loc ? loc.name : null
+      }];
+    }
+    if (/FROM course_venue_schedules s JOIN course_venues v/.test(q)) {
+      const venues = state.courseVenues.filter(v => v.course_id === Number(params[0]));
+      return state.courseSchedules
+        .filter(sch => venues.some(v => v.id === sch.course_venue_id))
+        .map(sch => {
+          const v = venues.find(x => x.id === sch.course_venue_id);
+          return { id: sch.id, time: sch.time, start_date: sch.start_date, end_date: sch.end_date, price: sch.price, seats_available: sch.seats_available, location_name: v.name };
+        });
+    }
+
+    // bookingService: users and courses for a set of bookings
+    if (/^SELECT id, name, email, role, status FROM users WHERE id IN \(\?\)/.test(q)) {
+      const ids = params[0].map(Number);
+      return state.users.filter(u => ids.includes(u.id)).map(u => ({ id: u.id, name: u.name, email: u.email, role: u.role, status: u.status }));
+    }
+    if (/^SELECT id, title, category, thumbnail, status, base_price.* FROM courses WHERE id = \? LIMIT 1/.test(q)) {
+      const c = state.courses.find(x => x.id === Number(params[0]));
+      return c ? [{ ...c }] : [];
+    }
+    if (/^SELECT id, title, category, thumbnail, status, base_price.* FROM courses WHERE id IN \(\?\)/.test(q)) {
+      const ids = params[0].map(Number);
+      return state.courses.filter(c => ids.includes(c.id)).map(c => ({ ...c }));
+    }
+    return undefined;
+  }
 
   // Handles the SQL emitted by locationModel / courseLocationModel.
   function routeLocations(q, params) {
@@ -402,6 +648,10 @@ function createMockDb({ users = [], courses = [], locations = [], courseLocation
       const c = state.courses.find(x => x.id === Number(params[0]));
       return c ? [{ ...c }] : [];
     }
+    if (/FROM courses WHERE id IN \(\?\)/.test(q)) {
+      const ids = params[0].map(Number);
+      return state.courses.filter(c => ids.includes(c.id)).map(c => ({ ...c }));
+    }
     if (/^SELECT id, title, category, duration, thumbnail.* FROM courses WHERE id IN \(\?\)/.test(q)) {
       const ids = params[0].map(Number);
       return state.courses.filter(c => ids.includes(c.id)).map(c => ({ ...c }));
@@ -596,6 +846,12 @@ function createMockDb({ users = [], courses = [], locations = [], courseLocation
       return { affectedRows: 1 };
     }
 
+    // ── bookings & seats ──────────────────────────────────────────────────
+    if (/\bbookings?\b|booking_extension_history|booking_reschedule_history|booking_attendance|booking_certificates|seats_available|booked_seats|course_venue_schedules s |course_location_dates d /.test(q)) {
+      const handled = routeBookings(q, params);
+      if (handled !== undefined) return handled;
+    }
+
     // ── locations & scheduling ────────────────────────────────────────────
     if (/\blocations?\b|location_facilities|location_gallery|course_locations|course_location_dates|course_location_date_timings/.test(q)) {
       const handled = routeLocations(q, params);
@@ -606,6 +862,18 @@ function createMockDb({ users = [], courses = [], locations = [], courseLocation
     if (/\bcourses?\b|course_list_items|course_venues|course_venue_schedules|course_locations/.test(q)) {
       const handled = routeCourses(q, params);
       if (handled !== undefined) return handled;
+    }
+
+    if (/^DELETE FROM users WHERE id = \?/.test(q)) {
+      const before = state.users.length;
+      state.users = state.users.filter(u => u.id !== Number(params[0]));
+      return { affectedRows: before - state.users.length };
+    }
+    if (/^DELETE FROM users WHERE id IN \(\?\)/.test(q)) {
+      const ids = params[0].map(Number);
+      const before = state.users.length;
+      state.users = state.users.filter(u => !ids.includes(u.id));
+      return { affectedRows: before - state.users.length };
     }
 
     // ── activity log ──────────────────────────────────────────────────────
@@ -707,7 +975,8 @@ function createMockDb({ users = [], courses = [], locations = [], courseLocation
     addTable: (name) => state.tables.add(name),
     findUser: (email) => state.users.find(u => u.email === String(email).toLowerCase()),
     findCourse: (title) => state.courses.find(c => c.title === title),
-    findLocation: (name) => state.locations.find(l => l.name === name)
+    findLocation: (name) => state.locations.find(l => l.name === name),
+    findBooking: (reference) => state.bookings.find(b => b.booking_reference === reference)
   };
 }
 

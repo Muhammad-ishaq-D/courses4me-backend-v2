@@ -11,8 +11,8 @@ mounted in `src/app.js`.
 | Authentication (customer, admin, portal password reset, social login, user management) | ready |
 | Courses | ready |
 | Locations and course scheduling (course-locations, dates) | ready |
+| Bookings, payments (Stripe) and the payment-window job | ready |
 | Licenses | pending |
-| Bookings, Stripe, booking cron | pending |
 | Jobs (listings, applications) | pending |
 | Reviews, Notifications, Settings, Dashboard, weekly report cron | pending |
 
@@ -56,7 +56,9 @@ Schema is managed with [Knex migrations](https://knexjs.org/guide/migrations.htm
 - Tables: `users`, `user_devices`, `user_activity_logs`, `password_resets`, `audit_logs`,
   `courses`, `course_list_items`, `course_venues`, `course_venue_schedules`,
   `locations`, `location_facilities`, `location_gallery`, `course_locations`,
-  `course_location_dates`, `course_location_date_timings`.
+  `course_location_dates`, `course_location_date_timings`, `bookings`,
+  `booking_extension_history`, `booking_reschedule_history`, `booking_attendance`,
+  `booking_certificates`.
 
 ## Project layout
 
@@ -71,7 +73,8 @@ src/
   models/                plain objects of raw-SQL functions
   services/              cross-cutting logic (tokenService, passwordResetService, loginLockoutService,
                          auditService, userStatsService, courseSessionService, licenseLookupService,
-                         cronService)
+                         seatService, bookingService, bookingEmailService, bookingExpiryService,
+                         stripeService, cronService)
                          NOTE: DATE columns are written through each model's toSqlDate() so a
                          server time zone can never move a calendar date to the day before.
   validators/            Joi schemas per module (+ common building blocks)
@@ -230,6 +233,52 @@ own price and deposit terms, and it owns the **dates** (sessions) students book.
 - Postcodes are stored upper-case. Deleting a location or a course removes its links, dates and
   timings (`ON DELETE CASCADE`); `courses.location_id` is `ON DELETE SET NULL`.
 
+## Bookings and payments
+
+### Endpoints
+
+| Method | Path | Access | Notes |
+| --- | --- | --- | --- |
+| POST | `/api/bookings` | public | checkout: takes a seat, creates the account if the email is new |
+| GET | `/api/bookings/reference/:ref` | public | re-checks a pending payment with Stripe before answering |
+| GET | `/api/bookings/my-status/:courseId` | user | PAID / PENDING / NONE plus the sessions already held |
+| GET | `/api/courses/user/enrolled` | user | the student dashboard, grouped by lifecycle |
+| GET | `/api/bookings` | admin | `?status=&paymentStatus=&fromDate=&toDate=&search=` |
+| GET/PUT/DELETE | `/api/bookings/:id` | admin | read, set status/paymentStatus, delete |
+| PUT | `/api/bookings/:id/lifecycle` | admin | extend, reschedule, postpone, cancel, complete, resume |
+| POST | `/api/bookings/:id/refund/request` | user | owner only, PAID and still upcoming; `proof` file optional |
+| POST | `/api/bookings/:id/refund/process` | admin, editor | approve (refunds at Stripe) or reject |
+| GET | `/api/bookings/users` | admin | customers with `bookingCount` and `totalSpent` |
+| GET/PUT/DELETE | `/api/bookings/users/:id` | admin | one customer; deleting removes their bookings |
+| POST | `/api/bookings/users/bulk-delete` | admin | `{ ids: [] }` |
+| POST | `/api/stripe/create-checkout-session/:bookingId` | public | hosted Stripe page |
+| POST | `/api/stripe/create-payment-intent/:bookingId` | public | embedded card form |
+| POST | `/api/stripe/webhook` | Stripe | signature-verified; mounted before the JSON parser |
+
+### Rules
+
+- **Seats are taken atomically.** The reservation is `UPDATE … WHERE booked_seats < available_seats`
+  (or `seats_available > 0`), so two customers cannot take the same last seat; a full session
+  answers `400`. Taking the seat, creating the account and writing the booking happen in one
+  transaction, so a failure leaves neither a held seat nor a half-written booking.
+- **A session is identified by id *and* source.** `session_schedule_source` says whether the id
+  belongs to `course_location_dates` or `course_venue_schedules` — both sequences start at 1.
+- **The price comes from the server**: the course-location link price, not the posted `totalAmount`.
+- **One active booking per customer and course.** A second attempt returns 400 with the existing
+  booking's id and status.
+- **Payment window:** a booking holds its seat for `BOOKING_PAYMENT_WINDOW_MINUTES` (60). The
+  job in `cronService` then marks it `EXPIRED`, releases the seat and emails the customer.
+- **Late payments:** if the money arrives after expiry, the seat is re-taken when one is free;
+  when the session has sold out the payment is refunded automatically and the student told.
+- **Refunds** move the money at Stripe first, then cancel the booking and put the seat back on
+  sale. `refundType: "partial"` refunds the total minus `deductionAmount`.
+- **Reschedules** need 48 hours' notice, stay within six months of the original date and are
+  capped at two. Without `forceBypass48h` the student pays a £70 fee first and the new dates are
+  applied by the webhook.
+- Emails (confirmation, receipt, failure, expiry, lifecycle, refunds, reschedule) live in
+  `bookingEmailService` and honour the Settings > Email Templates toggles. A delivery failure is
+  logged and never fails the request.
+
 ## Authorization model
 
 | Role | Access |
@@ -259,6 +308,7 @@ npm run postman         # every module
 npm run postman:auth    # scripts/update_postman_auth.js — folders 0–5
 npm run postman:courses # scripts/update_postman_courses.js — folder 6
 npm run postman:locations # scripts/update_postman_locations.js — folders 7–8
+npm run postman:bookings # scripts/update_postman_bookings.js — folders 9–11
 ```
 
 Set `baseUrl`, `testEmail`/`testPassword`, `adminEmail`/`adminPassword`. Login requests
@@ -267,7 +317,8 @@ store `token`/`adminToken`; *Verify OTP* stores `reset_token`. Test accounts onl
 ## Operational notes
 
 - Logging: `src/utils/logger.js` (`LOG_LEVEL=debug|info|warn|error`); requests via morgan.
-- Cron (`src/services/cronService.js`, UTC): daily purge of password-reset rows older than
-  24 h. `DISABLE_CRON=true` turns scheduling off.
+- Cron (`src/services/cronService.js`, UTC): daily purge of password-reset rows older than 24 h,
+  and every minute the expiry of bookings whose payment window has closed. `DISABLE_CRON=true`
+  turns scheduling off.
 - Transient MySQL socket resets are retried once by `db.query`; idle pool connections are
   recycled every 30 s for remote hosts.
