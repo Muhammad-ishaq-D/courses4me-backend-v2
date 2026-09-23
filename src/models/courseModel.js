@@ -30,6 +30,9 @@ const LIST_TYPES = {
 };
 
 const emptyToNull = (v) => (v === '' || v === undefined ? null : v);
+// NOT NULL text columns keep a blank value as '' (the admin form sends '' when
+// a field is cleared).
+const NOT_NULL_TEXT = ['level', 'reviews_count', 'booked_count', 'pass_rate'];
 /**
  * Calendar date for a DATE column. The validator turns an ISO string into a
  * Date, and handing that to the driver would let the server's zone move it to
@@ -52,7 +55,7 @@ function toColumns(data) {
   for (const [key, value] of Object.entries(data || {})) {
     if (value === undefined) continue;
     const col = COLUMNS[key];
-    if (col) out[col] = emptyToNull(value);
+    if (col) out[col] = NOT_NULL_TEXT.includes(col) ? (value ?? '') : emptyToNull(value);
   }
   if (out.is_popular !== undefined && out.is_popular !== null) {
     out.is_popular = out.is_popular === true || out.is_popular === 'true' || out.is_popular === 1 || out.is_popular === '1' ? 1 : 0;
