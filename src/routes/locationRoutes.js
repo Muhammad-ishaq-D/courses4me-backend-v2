@@ -1,19 +1,21 @@
 const express = require('express');
-const router = express.Router();
+const LocationController = require('../controllers/locationController');
 const { protect, authorize } = require('../middlewares/authMiddleware');
-const {
-    getLocations, getLocationById, createLocation,
-    updateLocation, toggleStatus, getLinkedCourses
-} = require('../controllers/locationController');
+const { validate } = require('../middlewares/validateMiddleware');
+const validators = require('../validators');
 
-// Public — portal reads these
-router.get('/', getLocations);
-router.get('/:id', getLocationById);
-router.get('/:id/courses', getLinkedCourses);
+const router = express.Router();
+const location = validators.location;
+
+// Public — the portal reads these
+router.get('/', validate(location.list, 'query'), LocationController.getAll);
+router.get('/:id', validate(location.idParam, 'params'), LocationController.getById);
+router.get('/:id/courses', validate(location.idParam, 'params'), LocationController.getLinkedCourses);
 
 // Admin only
-router.post('/', protect, authorize('admin'), createLocation);
-router.put('/:id', protect, authorize('admin'), updateLocation);
-router.patch('/:id/status', protect, authorize('admin'), toggleStatus);
+const adminOnly = [protect, authorize('admin')];
+router.post('/', ...adminOnly, validate(location.create), LocationController.create);
+router.put('/:id', ...adminOnly, validate(location.idParam, 'params'), validate(location.update), LocationController.update);
+router.patch('/:id/status', ...adminOnly, validate(location.idParam, 'params'), validate(location.setStatus), LocationController.toggleStatus);
 
 module.exports = router;

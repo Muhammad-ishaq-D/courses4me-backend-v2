@@ -30,6 +30,16 @@ const LIST_TYPES = {
 };
 
 const emptyToNull = (v) => (v === '' || v === undefined ? null : v);
+/**
+ * Calendar date for a DATE column. The validator turns an ISO string into a
+ * Date, and handing that to the driver would let the server's zone move it to
+ * the day before, so the UTC parts are formatted here.
+ */
+const toSqlDate = (v) => {
+  if (v === null || v === undefined || v === '') return null;
+  if (v instanceof Date) return v.toISOString().slice(0, 10);
+  return String(v).slice(0, 10);
+};
 const toNumberOrNull = (v) => (v === null || v === undefined || v === '' ? null : Number(v));
 
 /**
@@ -209,7 +219,7 @@ async function insertVenues(conn, courseId, venues) {
     const schedules = Array.isArray(venue.schedules) ? venue.schedules : [];
     if (!schedules.length) continue;
     const rows = schedules.map((s, i) => [
-      venueId, i, s.time, s.startDate, s.endDate, toNumberOrNull(s.price),
+      venueId, i, s.time, toSqlDate(s.startDate), toSqlDate(s.endDate), toNumberOrNull(s.price),
       s.seatsAvailable === undefined || s.seatsAvailable === '' ? 20 : Number(s.seatsAvailable),
       s.availabilityStatus || 'Available'
     ]);

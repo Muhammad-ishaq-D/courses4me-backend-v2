@@ -10,7 +10,7 @@ mounted in `src/app.js`.
 | --- | --- |
 | Authentication (customer, admin, portal password reset, social login, user management) | ready |
 | Courses | ready |
-| Locations, Course-Locations, Course-Location-Dates | pending |
+| Locations and course scheduling (course-locations, dates) | ready |
 | Licenses | pending |
 | Bookings, Stripe, booking cron | pending |
 | Jobs (listings, applications) | pending |
@@ -54,7 +54,9 @@ Schema is managed with [Knex migrations](https://knexjs.org/guide/migrations.htm
   as ISO strings with `Z`. `DATE` columns (e.g. `users.dob`) are returned as `YYYY-MM-DD`.
 - Every table has `created_at` / `updated_at` maintained by MySQL.
 - Tables: `users`, `user_devices`, `user_activity_logs`, `password_resets`, `audit_logs`,
-  `courses`, `course_list_items`, `course_venues`, `course_venue_schedules`.
+  `courses`, `course_list_items`, `course_venues`, `course_venue_schedules`,
+  `locations`, `location_facilities`, `location_gallery`, `course_locations`,
+  `course_location_dates`, `course_location_date_timings`.
 
 ## Project layout
 
@@ -70,6 +72,8 @@ src/
   services/              cross-cutting logic (tokenService, passwordResetService, loginLockoutService,
                          auditService, userStatsService, courseSessionService, licenseLookupService,
                          cronService)
+                         NOTE: DATE columns are written through each model's toSqlDate() so a
+                         server time zone can never move a calendar date to the day before.
   validators/            Joi schemas per module (+ common building blocks)
   middlewares/           authMiddleware (protect / authorize / optionalProtect), validateMiddleware,
                          errorMiddleware, rateLimiters, requestId, parseJsonBody, upload*
@@ -184,6 +188,48 @@ the Users page are zero until `bookings` exists; admin alerts (`notifyAdmins`) a
   `instructorPhoto` files (nested fields then arrive as JSON strings and are parsed by
   `parseJsonBody`).
 
+## Locations and course scheduling
+
+A **location** is a venue. A **course-location** is one course offered at that venue, with its
+own price and deposit terms, and it owns the **dates** (sessions) students book.
+
+### Endpoints
+
+| Method | Path | Access | Notes |
+| --- | --- | --- | --- |
+| GET | `/api/locations` | public | `?search=&status=&page=&limit=` (20 per page); adds `linkedCoursesCount` |
+| GET | `/api/locations/:id` | public | `linkedCoursesCount` here counts every link, whatever its status |
+| GET | `/api/locations/:id/courses` | public | the links of a venue, each with a short course summary |
+| POST | `/api/locations` | admin | required: `name`, `addressLine1`, `city`, `postcode` |
+| PUT | `/api/locations/:id` | admin | partial; `facilities` / `gallery` are replaced only when sent |
+| PATCH | `/api/locations/:id/status` | admin | `{}` flips the status, `{ status }` sets it |
+| GET | `/api/course-locations` | public | active links of published courses, with location, course and dates |
+| GET | `/api/course-locations/course/:courseId` | public | `?activeOnly=true` hides inactive links and disabled venues |
+| GET | `/api/course-locations/:id` | public | one link with its dates |
+| POST | `/api/course-locations/course/:courseId` | admin | required: `locationId`, `price`; `dates` optional |
+| PUT | `/api/course-locations/:id` | admin | see the dates rule below |
+| DELETE | `/api/course-locations/:id` | admin | removes the link and its dates |
+| POST | `/api/course-locations/:id/dates` | admin | add one date |
+| PUT | `/api/course-location-dates/:id` | admin | update one date |
+| DELETE | `/api/course-location-dates/:id` | admin | delete one date |
+
+### Rules
+
+- **Seats are reported as availability.** A date carries `availableSeats` = seats left
+  (`available_seats − booked_seats`) and `bookedSeats: 0`; the single-date endpoints also return
+  `seatsRemaining` and `availabilityStatus` (Available / Selling Fast ≤ 5 / Sold Out).
+- **`dates` on PUT is the complete set**: entries with an `_id` are updated, new entries added and
+  anything missing deleted. Omit `dates` to leave the schedule alone.
+- **One link per course + location** (`uq_course_locations_pair`), and an `Inactive` location cannot
+  be linked at all.
+- **Timings:** `timingsType: "same"` uses `startTime`/`endTime`; `"flexible"` uses `weeklyTimings`
+  (per weekday `isOff`, `startTime`, `endTime`), stored in `course_location_date_timings`.
+  Times are `HH:MM` in and out.
+- These dates also appear in a course's `sessions` on `GET /api/courses`, where a date whose venue
+  has been disabled is left out.
+- Postcodes are stored upper-case. Deleting a location or a course removes its links, dates and
+  timings (`ON DELETE CASCADE`); `courses.location_id` is `ON DELETE SET NULL`.
+
 ## Authorization model
 
 | Role | Access |
@@ -212,6 +258,7 @@ and never connect to MySQL.
 npm run postman         # every module
 npm run postman:auth    # scripts/update_postman_auth.js — folders 0–5
 npm run postman:courses # scripts/update_postman_courses.js — folder 6
+npm run postman:locations # scripts/update_postman_locations.js — folders 7–8
 ```
 
 Set `baseUrl`, `testEmail`/`testPassword`, `adminEmail`/`adminPassword`. Login requests

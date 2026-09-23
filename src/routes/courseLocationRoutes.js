@@ -1,26 +1,26 @@
 const express = require('express');
-const router = express.Router();
+const CourseLocationController = require('../controllers/courseLocationController');
 const { protect, authorize } = require('../middlewares/authMiddleware');
-const {
-    getAllCourseLocations, getCourseLocations, getCourseLocation, createCourseLocation,
-    updateCourseLocation, deleteCourseLocation,
-    addDate, updateDate, deleteDate
-} = require('../controllers/courseLocationController');
+const { validate } = require('../middlewares/validateMiddleware');
+const validators = require('../validators');
 
-// GET /api/course-locations  — all active links for published courses (public)
-router.get('/', getAllCourseLocations);
+const router = express.Router();
+const link = validators.courseLocation;
+const adminOnly = [protect, authorize('admin')];
 
-// /api/course-locations/course/:courseId
-router.get('/course/:courseId', getCourseLocations);
-router.post('/course/:courseId', protect, authorize('admin'), createCourseLocation);
+// All active links of published courses (public scheduling feed)
+router.get('/', CourseLocationController.getAll);
 
-// /api/course-locations/:id
-router.get('/:id', getCourseLocation);
-router.put('/:id', protect, authorize('admin'), updateCourseLocation);
-router.delete('/:id', protect, authorize('admin'), deleteCourseLocation);
+// Links of one course
+router.get('/course/:courseId', validate(link.courseIdParam, 'params'), validate(link.list, 'query'), CourseLocationController.getByCourse);
+router.post('/course/:courseId', ...adminOnly, validate(link.courseIdParam, 'params'), validate(link.create), CourseLocationController.create);
 
-// Dates nested under a course-location
-router.post('/:id/dates', protect, authorize('admin'), addDate);
+// One link
+router.get('/:id', validate(link.idParam, 'params'), CourseLocationController.getById);
+router.put('/:id', ...adminOnly, validate(link.idParam, 'params'), validate(link.update), CourseLocationController.update);
+router.delete('/:id', ...adminOnly, validate(link.idParam, 'params'), CourseLocationController.delete);
 
-// /api/course-location-dates/:id  (separate path handled in app.js)
+// Dates nested under a link
+router.post('/:id/dates', ...adminOnly, validate(link.idParam, 'params'), validate(link.createDate), CourseLocationController.addDate);
+
 module.exports = router;

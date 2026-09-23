@@ -1,118 +1,128 @@
-const Location = require('../models/Location');
-const CourseLocation = require('../models/CourseLocation');
+const LocationModel = require('../models/locationModel');
+const CourseLocationModel = require('../models/courseLocationModel');
 
-// GET /api/locations
-const getLocations = async (req, res) => {
+/** Attaches facilities and gallery to a row already read from `locations`. */
+async function withChildren(row, extras = {}) {
+  const [facilities, gallery] = await Promise.all([
+    LocationModel.facilitiesFor([row.id]),
+    LocationModel.galleryFor([row.id])
+  ]);
+  return LocationModel.toPublic(row, { facilities: facilities[row.id] || [], gallery: gallery[row.id] || [], ...extras });
+}
+
+const LocationController = {
+  // @desc    List locations
+  // @route   GET /api/locations?search=&status=&page=&limit=
+  // @access  Public
+  async getAll(req, res, next) {
     try {
-        const { search, status, page = 1, limit = 20 } = req.query;
-        const query = {};
+      const page = Number(req.query.page) || 1;
+      const limit = Number(req.query.limit) || 20;
+      const { rows, total } = await LocationModel.findAll(req.query, { limit, offset: (page - 1) * limit });
 
-        if (search) {
-            query.$or = [
-                { name: { $regex: search, $options: 'i' } },
-                { city: { $regex: search, $options: 'i' } },
-                { postcode: { $regex: search, $options: 'i' } },
-                { venueName: { $regex: search, $options: 'i' } }
-            ];
-        }
-        if (status) query.status = status;
+      const ids = rows.map(r => r.id);
+      const [facilities, gallery, counts] = await Promise.all([
+        LocationModel.facilitiesFor(ids),
+        LocationModel.galleryFor(ids),
+        LocationModel.publishedCourseCounts(ids)
+      ]);
 
-        const skip = (parseInt(page) - 1) * parseInt(limit);
-        const [locations, total] = await Promise.all([
-            Location.find(query).sort({ createdAt: -1 }).skip(skip).limit(parseInt(limit)).lean(),
-            Location.countDocuments(query)
-        ]);
+      const data = rows.map(row => LocationModel.toPublic(row, {
+        facilities: facilities[row.id] || [],
+        gallery: gallery[row.id] || [],
+        linkedCoursesCount: counts[row.id] || 0
+      }));
 
-        const locationIds = locations.map(l => l._id);
-        const counts = await CourseLocation.aggregate([
-            { $match: { locationId: { $in: locationIds }, status: 'Active' } },
-            { $lookup: { from: 'courses', localField: 'courseId', foreignField: '_id', as: 'course' } },
-            { $match: { 'course.status': 'Published' } },
-            { $group: { _id: '$locationId', count: { $sum: 1 } } }
-        ]);
-        const countMap = {};
-        counts.forEach(c => { countMap[c._id.toString()] = c.count; });
+      res.json({
+        success: true,
+        data,
+        pagination: { total, page, limit, pages: Math.ceil(total / limit) }
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
 
-        const data = locations.map(l => ({
-            ...l,
-            linkedCoursesCount: countMap[l._id.toString()] || 0
-        }));
+  // @desc    Get one location
+  // @route   GET /api/locations/:id
+  // @access  Public
+  async getById(req, res, next) {
+    try {
+      const row = await LocationModel.findById(req.params.id);
+      if (!row) return res.status(404).json({ success: false, message: 'Location not found' });
+      const linkedCoursesCount = await LocationModel.linkCount(row.id);
+      res.json({ success: true, data: await withChildren(row, { linkedCoursesCount }) });
+    } catch (error) {
+      next(error);
+    }
+  },
 
-        res.json({
-            success: true,
-            data,
-            pagination: {
-                total,
-                page: parseInt(page),
-                limit: parseInt(limit),
-                pages: Math.ceil(total / parseInt(limit))
-            }
+  // @desc    Create a location
+  // @route   POST /api/locations
+  // @access  Private/Admin
+  async create(req, res, next) {
+    try {
+      const id = await LocationModel.create(req.body);
+      const row = await LocationModel.findById(id);
+      res.status(201).json({ success: true, data: await withChildren(row) });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  // @desc    Update a location
+  // @route   PUT /api/locations/:id
+  // @access  Private/Admin
+  async update(req, res, next) {
+    try {
+      const existing = await LocationModel.findById(req.params.id);
+      if (!existing) return res.status(404).json({ success: false, message: 'Location not found' });
+
+      await LocationModel.update(existing.id, req.body);
+      const row = await LocationModel.findById(existing.id);
+      res.json({ success: true, data: await withChildren(row) });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  // @desc    Set or flip the status of a location
+  // @route   PATCH /api/locations/:id/status
+  // @access  Private/Admin
+  async toggleStatus(req, res, next) {
+    try {
+      const existing = await LocationModel.findById(req.params.id);
+      if (!existing) return res.status(404).json({ success: false, message: 'Location not found' });
+
+      const status = req.body.status || (existing.status === 'Active' ? 'Inactive' : 'Active');
+      await LocationModel.setStatus(existing.id, status);
+      const row = await LocationModel.findById(existing.id);
+      res.json({ success: true, data: await withChildren(row) });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  // @desc    Courses linked to a location
+  // @route   GET /api/locations/:id/courses
+  // @access  Public
+  async getLinkedCourses(req, res, next) {
+    try {
+      const links = await CourseLocationModel.findByLocation(req.params.id);
+      const courses = await CourseLocationModel.coursesByIds(links.map(l => l.course_id));
+
+      const data = links.map(link => {
+        const { dates, locationId, ...rest } = CourseLocationModel.linkToPublic(link, {
+          course: CourseLocationModel.courseBrief(courses[link.course_id])
         });
+        return { ...rest, locationId: String(link.location_id) };
+      });
+
+      res.json({ success: true, data });
     } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
+      next(error);
     }
+  }
 };
 
-// GET /api/locations/:id
-const getLocationById = async (req, res) => {
-    try {
-        const location = await Location.findById(req.params.id).lean();
-        if (!location) return res.status(404).json({ success: false, message: 'Location not found' });
-        const linkedCoursesCount = await CourseLocation.countDocuments({ locationId: req.params.id });
-        res.json({ success: true, data: { ...location, linkedCoursesCount } });
-    } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
-    }
-};
-
-// POST /api/locations
-const createLocation = async (req, res) => {
-    try {
-        const location = await Location.create(req.body);
-        res.status(201).json({ success: true, data: location });
-    } catch (error) {
-        res.status(400).json({ success: false, message: error.message });
-    }
-};
-
-// PUT /api/locations/:id
-const updateLocation = async (req, res) => {
-    try {
-        const location = await Location.findByIdAndUpdate(
-            req.params.id,
-            req.body,
-            { new: true, runValidators: true }
-        );
-        if (!location) return res.status(404).json({ success: false, message: 'Location not found' });
-        res.json({ success: true, data: location });
-    } catch (error) {
-        res.status(400).json({ success: false, message: error.message });
-    }
-};
-
-// PATCH /api/locations/:id/status
-const toggleStatus = async (req, res) => {
-    try {
-        const location = await Location.findById(req.params.id);
-        if (!location) return res.status(404).json({ success: false, message: 'Location not found' });
-        location.status = req.body.status || (location.status === 'Active' ? 'Inactive' : 'Active');
-        await location.save();
-        res.json({ success: true, data: location });
-    } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
-    }
-};
-
-// GET /api/locations/:id/courses
-const getLinkedCourses = async (req, res) => {
-    try {
-        const links = await CourseLocation.find({ locationId: req.params.id })
-            .populate('courseId', 'title category status thumbnail')
-            .lean();
-        res.json({ success: true, data: links });
-    } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
-    }
-};
-
-module.exports = { getLocations, getLocationById, createLocation, updateLocation, toggleStatus, getLinkedCourses };
+module.exports = LocationController;

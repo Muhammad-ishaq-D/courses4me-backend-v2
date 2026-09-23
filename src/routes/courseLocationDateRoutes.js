@@ -1,9 +1,14 @@
 const express = require('express');
-const router = express.Router();
+const CourseLocationController = require('../controllers/courseLocationController');
 const { protect, authorize } = require('../middlewares/authMiddleware');
-const { updateDate, deleteDate } = require('../controllers/courseLocationController');
+const { validate } = require('../middlewares/validateMiddleware');
+const validators = require('../validators');
 
-router.put('/:id', protect, authorize('admin'), updateDate);
-router.delete('/:id', protect, authorize('admin'), deleteDate);
+const router = express.Router();
+const link = validators.courseLocation;
+const adminOnly = [protect, authorize('admin')];
+
+router.put('/:id', ...adminOnly, validate(link.idParam, 'params'), validate(link.updateDate), CourseLocationController.updateDate);
+router.delete('/:id', ...adminOnly, validate(link.idParam, 'params'), CourseLocationController.deleteDate);
 
 module.exports = router;

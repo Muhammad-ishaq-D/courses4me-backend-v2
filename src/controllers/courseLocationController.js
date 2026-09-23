@@ -1,224 +1,192 @@
-const CourseLocation = require('../models/CourseLocation');
-const CourseLocationDate = require('../models/CourseLocationDate');
-const Location = require('../models/Location');
+const CourseLocationModel = require('../models/courseLocationModel');
+const LocationModel = require('../models/locationModel');
 
-const populateLink = (query) =>
-    query
-        .populate('locationId')
-        .populate('courseId', 'title category duration thumbnail pricing guarantee shortDescription status');
+/**
+ * Seat counts are reported as availability: `availableSeats` is what is left
+ * and `bookedSeats` is hidden from the client.
+ */
+const asAvailability = (date) => ({
+  ...date,
+  availableSeats: Math.max(0, (date.availableSeats || 0) - (date.bookedSeats || 0)),
+  bookedSeats: 0
+});
 
-const mapDatesForClient = (dates) => {
-    return (dates || []).map(d => {
-        const remaining = Math.max(0, (d.availableSeats || 0) - (d.bookedSeats || 0));
-        return {
-            ...d,
-            availableSeats: remaining,
-            bookedSeats: 0
-        };
-    });
-};
+/** Seats left plus the label the listings show. */
+function withSeatSummary(date) {
+  const remaining = Math.max(0, (date.availableSeats || 0) - (date.bookedSeats || 0));
+  return {
+    ...date,
+    seatsRemaining: remaining,
+    availabilityStatus: remaining <= 0 ? 'Sold Out' : (remaining <= 5 ? 'Selling Fast' : 'Available')
+  };
+}
 
-// GET /api/course-locations  (all active links for published courses — used by public location search)
-const getAllCourseLocations = async (req, res) => {
+/** Links with their location, course and dates attached. */
+async function expandLinks(links) {
+  if (!links.length) return [];
+  const [locations, courses, dates] = await Promise.all([
+    CourseLocationModel.locationsByIds(links.map(l => l.location_id)),
+    CourseLocationModel.coursesByIds(links.map(l => l.course_id)),
+    CourseLocationModel.datesFor(links.map(l => l.id))
+  ]);
+
+  return links.map(link => CourseLocationModel.linkToPublic(link, {
+    location: locations[link.location_id] || null,
+    course: CourseLocationModel.courseSummary(courses[link.course_id]),
+    dates: (dates[link.id] || []).map(asAvailability)
+  }));
+}
+
+const CourseLocationController = {
+  // @desc    Active links of published courses
+  // @route   GET /api/course-locations
+  // @access  Public
+  async getAll(req, res, next) {
     try {
-        const links = await populateLink(CourseLocation.find({ status: 'Active' })).lean();
-        // Surface links for published courses. Disabled (Inactive) locations are included
-        // so the portal can still show them greyed out / non-selectable — the client uses
-        // locationId.status to disable booking on them.
-        const publishedLinks = links.filter((l) =>
-            l.courseId && l.courseId.status === 'Published' &&
-            l.locationId);
-        const linksWithDates = await Promise.all(publishedLinks.map(async (link) => {
-            const dates = await CourseLocationDate.find({ courseLocationId: link._id })
-                .sort({ startDate: 1 }).lean();
-            return { ...link, dates: mapDatesForClient(dates) };
-        }));
-        res.json({ success: true, data: linksWithDates });
+      // Inactive locations are included so the portal can show them greyed out;
+      // the client decides using locationId.status.
+      const links = await CourseLocationModel.findActiveForPublishedCourses();
+      res.json({ success: true, data: await expandLinks(links) });
     } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
+      next(error);
     }
-};
+  },
 
-// GET /api/course-locations/course/:courseId
-const getCourseLocations = async (req, res) => {
+  // @desc    Links of one course
+  // @route   GET /api/course-locations/course/:courseId?activeOnly=true
+  // @access  Public
+  async getByCourse(req, res, next) {
     try {
-        // Optional ?activeOnly=true hides disabled locations / inactive links.
-        // Both the portal and admin now omit it: the portal shows disabled locations
-        // greyed out / non-selectable, and admin keeps full visibility. Kept for any
-        // caller that still wants an active-only list.
-        const activeOnly = req.query.activeOnly === 'true';
-
-        const filter = { courseId: req.params.courseId };
-        if (activeOnly) filter.status = 'Active';
-
-        let links = await populateLink(CourseLocation.find(filter)).lean();
-
-        if (activeOnly) {
-            links = links.filter((l) => l.locationId && l.locationId.status === 'Active');
-        }
-
-        const linksWithDates = await Promise.all(links.map(async (link) => {
-            const dates = await CourseLocationDate.find({ courseLocationId: link._id })
-                .sort({ startDate: 1 }).lean();
-            return { ...link, dates: mapDatesForClient(dates) };
-        }));
-
-        res.json({ success: true, data: linksWithDates });
+      // activeOnly hides inactive links and disabled locations. Both apps omit
+      // it today; it is kept for any caller that wants a bookable-only list.
+      const links = await CourseLocationModel.findByCourse(req.params.courseId, {
+        activeOnly: req.query.activeOnly === 'true'
+      });
+      res.json({ success: true, data: await expandLinks(links) });
     } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
+      next(error);
     }
-};
+  },
 
-// GET /api/course-locations/:id
-const getCourseLocation = async (req, res) => {
+  // @desc    Get one link
+  // @route   GET /api/course-locations/:id
+  // @access  Public
+  async getById(req, res, next) {
     try {
-        const link = await populateLink(CourseLocation.findById(req.params.id)).lean();
-        if (!link) return res.status(404).json({ success: false, message: 'Course location not found' });
-
-        const dates = await CourseLocationDate.find({ courseLocationId: req.params.id })
-            .sort({ startDate: 1 }).lean();
-
-        res.json({ success: true, data: { ...link, dates: mapDatesForClient(dates) } });
+      const link = await CourseLocationModel.findById(req.params.id);
+      if (!link) return res.status(404).json({ success: false, message: 'Course location not found' });
+      const [data] = await expandLinks([link]);
+      res.json({ success: true, data });
     } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
+      next(error);
     }
-};
+  },
 
-// POST /api/course-locations/course/:courseId
-const createCourseLocation = async (req, res) => {
+  // @desc    Link a location to a course
+  // @route   POST /api/course-locations/course/:courseId
+  // @access  Private/Admin
+  async create(req, res, next) {
     try {
-        const { locationId, price, vatIncluded, depositRequired, depositAmount, whatsIncluded, dates } = req.body;
+      const { locationId } = req.body;
 
-        const location = await Location.findById(locationId);
-        if (!location) return res.status(404).json({ success: false, message: 'Location not found' });
-        if (location.status === 'Inactive') {
-            return res.status(400).json({ success: false, message: 'Cannot link an inactive location to a course' });
-        }
+      const location = await LocationModel.findById(locationId);
+      if (!location) return res.status(404).json({ success: false, message: 'Location not found' });
+      if (location.status === 'Inactive') {
+        return res.status(400).json({ success: false, message: 'Cannot link an inactive location to a course' });
+      }
 
-        // Check for duplicate: same location already linked to this course
-        const existingLink = await CourseLocation.findOne({ courseId: req.params.courseId, locationId });
-        if (existingLink) {
-            return res.status(400).json({ success: false, message: 'This location is already linked to this course. The same location cannot be added twice.' });
-        }
-
-        const link = await CourseLocation.create({
-            courseId: req.params.courseId,
-            locationId,
-            price,
-            vatIncluded,
-            depositRequired,
-            depositAmount,
-            whatsIncluded
+      if (await CourseLocationModel.findByPair(req.params.courseId, locationId)) {
+        return res.status(400).json({
+          success: false,
+          message: 'This location is already linked to this course. The same location cannot be added twice.'
         });
+      }
 
-        if (dates && dates.length > 0) {
-            await CourseLocationDate.insertMany(
-                dates.map(d => ({ courseLocationId: link._id, ...d }))
-            );
-        }
-
-        const fullLink = await populateLink(CourseLocation.findById(link._id)).lean();
-        const createdDates = await CourseLocationDate.find({ courseLocationId: link._id })
-            .sort({ startDate: 1 }).lean();
-
-        res.status(201).json({ success: true, data: { ...fullLink, dates: mapDatesForClient(createdDates) } });
+      const id = await CourseLocationModel.create(req.params.courseId, locationId, req.body);
+      const [data] = await expandLinks([await CourseLocationModel.findById(id)]);
+      res.status(201).json({ success: true, data });
     } catch (error) {
-        if (error.code === 11000) {
-            return res.status(400).json({ success: false, message: 'This location is already linked to this course' });
-        }
-        res.status(400).json({ success: false, message: error.message });
+      if (error.code === 'ER_DUP_ENTRY') {
+        return res.status(400).json({ success: false, message: 'This location is already linked to this course' });
+      }
+      if (error.code === 'ER_NO_REFERENCED_ROW_2') {
+        return res.status(404).json({ success: false, message: 'Course not found' });
+      }
+      next(error);
     }
-};
+  },
 
-// PUT /api/course-locations/:id
-const updateCourseLocation = async (req, res) => {
+  // @desc    Update a link and, when supplied, its full set of dates
+  // @route   PUT /api/course-locations/:id
+  // @access  Private/Admin
+  async update(req, res, next) {
     try {
-        const { price, vatIncluded, depositRequired, depositAmount, whatsIncluded, status, dates } = req.body;
-        const link = await CourseLocation.findByIdAndUpdate(
-            req.params.id,
-            { price, vatIncluded, depositRequired, depositAmount, whatsIncluded, status },
-            { new: true, runValidators: true }
-        ).populate('locationId');
-        if (!link) return res.status(404).json({ success: false, message: 'Course location not found' });
+      const existing = await CourseLocationModel.findById(req.params.id);
+      if (!existing) return res.status(404).json({ success: false, message: 'Course location not found' });
 
-        if (dates && Array.isArray(dates)) {
-            const incomingIds = dates.map(d => d._id).filter(id => id);
-            
-            // Delete dates that are not in the incoming list
-            await CourseLocationDate.deleteMany({
-                courseLocationId: link._id,
-                _id: { $nin: incomingIds }
-            });
-
-            // Update existing or create new
-            for (const d of dates) {
-                if (d._id) {
-                    await CourseLocationDate.findByIdAndUpdate(d._id, d, { runValidators: true });
-                } else {
-                    await CourseLocationDate.create({ courseLocationId: link._id, ...d });
-                }
-            }
-        }
-
-        const updatedDates = await CourseLocationDate.find({ courseLocationId: link._id })
-            .sort({ startDate: 1 }).lean();
-
-        res.json({ success: true, data: { ...link.toObject ? link.toObject() : link, dates: mapDatesForClient(updatedDates) } });
+      await CourseLocationModel.update(existing.id, req.body);
+      const [data] = await expandLinks([await CourseLocationModel.findById(existing.id)]);
+      res.json({ success: true, data });
     } catch (error) {
-        res.status(400).json({ success: false, message: error.message });
+      next(error);
     }
-};
+  },
 
-// DELETE /api/course-locations/:id
-const deleteCourseLocation = async (req, res) => {
+  // @desc    Remove a location from a course
+  // @route   DELETE /api/course-locations/:id
+  // @access  Private/Admin
+  async delete(req, res, next) {
     try {
-        await CourseLocationDate.deleteMany({ courseLocationId: req.params.id });
-        await CourseLocation.findByIdAndDelete(req.params.id);
-        res.json({ success: true, message: 'Location removed from course' });
+      await CourseLocationModel.delete(req.params.id);
+      res.json({ success: true, message: 'Location removed from course' });
     } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
+      next(error);
     }
-};
+  },
 
-// POST /api/course-locations/:id/dates
-const addDate = async (req, res) => {
+  // @desc    Add a date to a link
+  // @route   POST /api/course-locations/:id/dates
+  // @access  Private/Admin
+  async addDate(req, res, next) {
     try {
-        const link = await CourseLocation.findById(req.params.id);
-        if (!link) return res.status(404).json({ success: false, message: 'Course location not found' });
-        const date = await CourseLocationDate.create({ courseLocationId: req.params.id, ...req.body });
-        const dateObj = date.toObject ? date.toObject() : date;
-        const mapped = mapDatesForClient([dateObj])[0];
-        res.status(201).json({ success: true, data: mapped });
-    } catch (error) {
-        res.status(400).json({ success: false, message: error.message });
-    }
-};
+      const link = await CourseLocationModel.findById(req.params.id);
+      if (!link) return res.status(404).json({ success: false, message: 'Course location not found' });
 
-// PUT /api/course-location-dates/:id
-const updateDate = async (req, res) => {
+      const id = await CourseLocationModel.addDate(link.id, req.body);
+      const date = await CourseLocationModel.findDateById(id);
+      res.status(201).json({ success: true, data: asAvailability(withSeatSummary(date)) });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  // @desc    Update a date
+  // @route   PUT /api/course-location-dates/:id
+  // @access  Private/Admin
+  async updateDate(req, res, next) {
     try {
-        const date = await CourseLocationDate.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true });
-        if (!date) return res.status(404).json({ success: false, message: 'Date not found' });
-        const dateObj = date.toObject ? date.toObject() : date;
-        const mapped = mapDatesForClient([dateObj])[0];
-        res.json({ success: true, data: mapped });
-    } catch (error) {
-        res.status(400).json({ success: false, message: error.message });
-    }
-};
+      const existing = await CourseLocationModel.findDateById(req.params.id);
+      if (!existing) return res.status(404).json({ success: false, message: 'Date not found' });
 
-// DELETE /api/course-location-dates/:id
-const deleteDate = async (req, res) => {
+      await CourseLocationModel.updateDate(existing.id, req.body);
+      const date = await CourseLocationModel.findDateById(existing.id);
+      res.json({ success: true, data: asAvailability(withSeatSummary(date)) });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  // @desc    Delete a date
+  // @route   DELETE /api/course-location-dates/:id
+  // @access  Private/Admin
+  async deleteDate(req, res, next) {
     try {
-        await CourseLocationDate.findByIdAndDelete(req.params.id);
-        res.json({ success: true, message: 'Date removed' });
+      await CourseLocationModel.deleteDate(req.params.id);
+      res.json({ success: true, message: 'Date removed' });
     } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
+      next(error);
     }
+  }
 };
 
-module.exports = {
-    getAllCourseLocations, getCourseLocations, getCourseLocation, createCourseLocation,
-    updateCourseLocation, deleteCourseLocation,
-    addDate, updateDate, deleteDate
-};
+module.exports = CourseLocationController;

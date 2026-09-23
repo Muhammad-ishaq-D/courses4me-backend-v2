@@ -26,9 +26,9 @@ const courseRoutes = require('./routes/courseRoutes');
 // const licenseRoutes = require('./routes/licenseRoutes');
 // const jobRoutes = require('./routes/jobRoutes');
 // const dashboardRoutes = require('./routes/dashboardRoutes');
-// const locationRoutes = require('./routes/locationRoutes');
-// const courseLocationRoutes = require('./routes/courseLocationRoutes');
-// const courseLocationDateRoutes = require('./routes/courseLocationDateRoutes');
+const locationRoutes = require('./routes/locationRoutes');
+const courseLocationRoutes = require('./routes/courseLocationRoutes');
+const courseLocationDateRoutes = require('./routes/courseLocationDateRoutes');
 // const settingsRoutes = require('./routes/settingsRoutes');
 // const reviewRoutes = require('./routes/reviewRoutes');
 
@@ -150,9 +150,9 @@ app.use('/api/courses', courseRoutes);
 // app.use('/api/licenses', licenseRoutes);
 // app.use('/api/jobs', jobRoutes);
 // app.use('/api/dashboard', dashboardRoutes);
-// app.use('/api/locations', locationRoutes);
-// app.use('/api/course-locations', courseLocationRoutes);
-// app.use('/api/course-location-dates', courseLocationDateRoutes);
+app.use('/api/locations', locationRoutes);
+app.use('/api/course-locations', courseLocationRoutes);
+app.use('/api/course-location-dates', courseLocationDateRoutes);
 // app.use('/api/settings', settingsRoutes);
 // app.use('/api/reviews', reviewRoutes);
 

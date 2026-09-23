@@ -1410,6 +1410,714 @@
           ]
         }
       ]
+    },
+    {
+      "name": "7. Locations",
+      "description": "Training venues. Reads are public; writes need {{adminToken}}. Postcodes are stored upper-case.",
+      "item": [
+        {
+          "name": "List Locations",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/locations?search=london&status=Active&page=1&limit=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "locations"
+              ],
+              "query": [
+                {
+                  "key": "search",
+                  "value": "london",
+                  "description": "matches name, city, postcode or venue name",
+                  "disabled": true
+                },
+                {
+                  "key": "status",
+                  "value": "Active",
+                  "description": "Active | Inactive",
+                  "disabled": true
+                },
+                {
+                  "key": "page",
+                  "value": "1",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "20",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Paginated (default 20 per page). `linkedCoursesCount` counts active links to published courses."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Locations listed\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "    pm.expect(pm.response.json().success).to.eql(true);",
+                  "});",
+                  "var body = pm.response.json();",
+                  "if (body.data && body.data[0] && body.data[0].id) { pm.collectionVariables.set(\"locationId\", body.data && body.data[0] && body.data[0].id); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Location",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/locations/{{locationId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "locations",
+                "{{locationId}}"
+              ]
+            },
+            "description": "Here `linkedCoursesCount` counts every link, whatever its status."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Request succeeded\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "    pm.expect(pm.response.json().success).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Linked Courses",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/locations/{{locationId}}/courses",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "locations",
+                "{{locationId}}",
+                "courses"
+              ]
+            },
+            "description": "Links of this location, each with a short course summary."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Request succeeded\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "    pm.expect(pm.response.json().success).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create Location",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/locations",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "locations"
+              ]
+            },
+            "description": "Required: name, addressLine1, city, postcode. Facilities: wifi, projector, whiteboard, catering, toilets, disabled_access, prayer_room, air_conditioning.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"London Centre\",\n  \"venueName\": \"Westminster Training Rooms\",\n  \"addressLine1\": \"1 Test Street\",\n  \"addressLine2\": \"Floor 2\",\n  \"city\": \"London\",\n  \"postcode\": \"SW1A 1AA\",\n  \"country\": \"United Kingdom\",\n  \"mapsUrl\": \"https://maps.google.com/?q=SW1A+1AA\",\n  \"parking\": true,\n  \"parkingNotes\": \"Paid street parking outside\",\n  \"accessibility\": \"Step-free access and a lift to all floors\",\n  \"transport\": \"5 minutes from Westminster station\",\n  \"facilities\": [\n    \"wifi\",\n    \"projector\",\n    \"toilets\",\n    \"disabled_access\"\n  ],\n  \"mainImage\": \"https://res.cloudinary.com/demo/image/upload/sample.jpg\",\n  \"gallery\": [\n    \"https://res.cloudinary.com/demo/image/upload/sample.jpg\"\n  ],\n  \"localMarketOverview\": \"High demand for SIA licensed staff in central London.\",\n  \"localVenues\": \"Stadiums, bars and event spaces across Westminster.\",\n  \"surroundingAreas\": \"Victoria, Pimlico, Lambeth\",\n  \"status\": \"Active\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Location created\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "    pm.expect(pm.response.json().success).to.eql(true);",
+                  "});",
+                  "var body = pm.response.json();",
+                  "if (body.data.id) { pm.collectionVariables.set(\"locationId\", body.data.id); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update Location (partial)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/locations/{{locationId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "locations",
+                "{{locationId}}"
+              ]
+            },
+            "description": "Only the fields sent change. Sending `facilities` or `gallery` replaces that list; leaving it out keeps it.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"transport\": \"Two minutes from the Underground\",\n  \"facilities\": [\n    \"wifi\",\n    \"catering\"\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Location updated\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "    pm.expect(pm.response.json().success).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Toggle Status",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/locations/{{locationId}}/status",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "locations",
+                "{{locationId}}",
+                "status"
+              ]
+            },
+            "description": "Send `{}` to flip the status, or a status to set it. An inactive location cannot be linked to a course.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"Inactive\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status updated\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "    pm.expect(pm.response.json().success).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "8. Course Scheduling",
+      "description": "A course offered at a location: its price, deposit terms and dated sessions. Seats are reported as availability — `availableSeats` is what is left and `bookedSeats` is always 0.",
+      "item": [
+        {
+          "name": "All Active Links (public feed)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/course-locations",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "course-locations"
+              ]
+            },
+            "description": "Active links of published courses, with the full location, a course summary and the dates. Disabled locations are included so the portal can grey them out — check `locationId.status`."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Feed returned\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "    pm.expect(pm.response.json().success).to.eql(true);",
+                  "});",
+                  "var body = pm.response.json();",
+                  "if (body.data && body.data[0] && body.data[0].id) { pm.collectionVariables.set(\"courseLocationId\", body.data && body.data[0] && body.data[0].id); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Links of a Course",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/course-locations/course/{{courseId}}?activeOnly=true",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "course-locations",
+                "course",
+                "{{courseId}}"
+              ],
+              "query": [
+                {
+                  "key": "activeOnly",
+                  "value": "true",
+                  "description": "hides inactive links and disabled locations",
+                  "disabled": true
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Request succeeded\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "    pm.expect(pm.response.json().success).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Link",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/course-locations/{{courseLocationId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "course-locations",
+                "{{courseLocationId}}"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Request succeeded\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "    pm.expect(pm.response.json().success).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Link Location to Course",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/course-locations/course/{{courseId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "course-locations",
+                "course",
+                "{{courseId}}"
+              ]
+            },
+            "description": "Required: locationId and price. A location can only be linked once per course, and an inactive location is refused. `timingsType: \"flexible\"` uses `weeklyTimings`; \"same\" uses startTime/endTime.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"locationId\": \"{{locationId}}\",\n  \"price\": 225.5,\n  \"vatIncluded\": true,\n  \"depositRequired\": true,\n  \"depositAmount\": 50,\n  \"whatsIncluded\": \"Course manual, exam fee and certificate\",\n  \"dates\": [\n    {\n      \"startDate\": \"2026-11-02\",\n      \"endDate\": \"2026-11-05\",\n      \"startTime\": \"09:00\",\n      \"endTime\": \"17:00\",\n      \"availableSeats\": 12,\n      \"timingsType\": \"same\"\n    },\n    {\n      \"startDate\": \"2026-12-01\",\n      \"endDate\": \"2026-12-04\",\n      \"availableSeats\": 8,\n      \"timingsType\": \"flexible\",\n      \"weeklyTimings\": {\n        \"monday\": {\n          \"isOff\": false,\n          \"startTime\": \"09:30\",\n          \"endTime\": \"16:30\"\n        },\n        \"tuesday\": {\n          \"isOff\": false,\n          \"startTime\": \"09:30\",\n          \"endTime\": \"16:30\"\n        },\n        \"wednesday\": {\n          \"isOff\": false,\n          \"startTime\": \"09:30\",\n          \"endTime\": \"16:30\"\n        },\n        \"thursday\": {\n          \"isOff\": false,\n          \"startTime\": \"09:30\",\n          \"endTime\": \"16:30\"\n        },\n        \"friday\": {\n          \"isOff\": false,\n          \"startTime\": \"09:30\",\n          \"endTime\": \"15:00\"\n        },\n        \"saturday\": {\n          \"isOff\": true,\n          \"startTime\": \"\",\n          \"endTime\": \"\"\n        },\n        \"sunday\": {\n          \"isOff\": true,\n          \"startTime\": \"\",\n          \"endTime\": \"\"\n        }\n      }\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Location linked\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "    pm.expect(pm.response.json().success).to.eql(true);",
+                  "});",
+                  "var body = pm.response.json();",
+                  "if (body.data.id) { pm.collectionVariables.set(\"courseLocationId\", body.data.id); }",
+                  "var body = pm.response.json();",
+                  "if (body.data && body.data.dates && body.data.dates[0] && body.data.dates[0].id) { pm.collectionVariables.set(\"courseLocationDateId\", body.data && body.data.dates && body.data.dates[0] && body.data.dates[0].id); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update Link and Dates",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/course-locations/{{courseLocationId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "course-locations",
+                "{{courseLocationId}}"
+              ]
+            },
+            "description": "When `dates` is sent it is the complete set: entries with an `_id` are updated, new entries are added and anything missing is deleted. Omit `dates` to leave the schedule untouched.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"price\": 249,\n  \"whatsIncluded\": \"Course manual and exam fee\",\n  \"dates\": [\n    {\n      \"_id\": \"{{courseLocationDateId}}\",\n      \"startDate\": \"2026-11-02\",\n      \"endDate\": \"2026-11-05\",\n      \"availableSeats\": 20\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Link updated\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "    pm.expect(pm.response.json().success).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Add Date",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/course-locations/{{courseLocationId}}/dates",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "course-locations",
+                "{{courseLocationId}}",
+                "dates"
+              ]
+            },
+            "description": "Returns the date with `seatsRemaining` and `availabilityStatus` (Available / Selling Fast / Sold Out).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"startDate\": \"2027-01-11\",\n  \"endDate\": \"2027-01-14\",\n  \"startTime\": \"09:00\",\n  \"endTime\": \"17:00\",\n  \"availableSeats\": 15\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Date added\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "    pm.expect(pm.response.json().success).to.eql(true);",
+                  "});",
+                  "var body = pm.response.json();",
+                  "if (body.data.id) { pm.collectionVariables.set(\"courseLocationDateId\", body.data.id); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update Date",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/course-location-dates/{{courseLocationDateId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "course-location-dates",
+                "{{courseLocationDateId}}"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"availableSeats\": 4,\n  \"startTime\": \"10:00\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Date updated\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "    pm.expect(pm.response.json().success).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Delete Date",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/course-location-dates/{{courseLocationDateId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "course-location-dates",
+                "{{courseLocationDateId}}"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Date removed\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "    pm.expect(pm.response.json().success).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Unlink Location",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/course-locations/{{courseLocationId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "course-locations",
+                "{{courseLocationId}}"
+              ]
+            },
+            "description": "Removes the link and every date under it."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Location removed from course\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "    pm.expect(pm.response.json().success).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
     }
   ],
   "variable": [
@@ -1465,6 +2173,21 @@
     },
     {
       "key": "courseId",
+      "value": "1",
+      "type": "string"
+    },
+    {
+      "key": "locationId",
+      "value": "1",
+      "type": "string"
+    },
+    {
+      "key": "courseLocationId",
+      "value": "1",
+      "type": "string"
+    },
+    {
+      "key": "courseLocationDateId",
       "value": "1",
       "type": "string"
     }
