@@ -73,6 +73,8 @@ async function enrichLocationsWithCoordinates(locations) {
         return locations;
     }
 
+    // Every failure here is about the admin's venue data (or postcodes.io
+    // being unreachable), so it goes back as a 400 with its message.
     return Promise.all(
         locations.map(async (loc) => {
             const location = { ...loc };
@@ -98,7 +100,10 @@ async function enrichLocationsWithCoordinates(locations) {
 
             return location;
         })
-    );
+    ).catch((error) => {
+        if (!error.statusCode) error.statusCode = 400;
+        throw error;
+    });
 }
 
 module.exports = {

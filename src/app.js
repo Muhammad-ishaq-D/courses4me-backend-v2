@@ -97,9 +97,11 @@ app.use(passport.initialize());
 // Stripe webhooks need the raw body, so that router is mounted before express.json()
 app.use('/api/stripe', stripeRoutes);
 
-// Body limits: profile updates may carry a base64 photo, everything else is small JSON
+// Body limits: profile updates and the course form may carry base64 images,
+// everything else is small JSON
 const PROFILE_ROUTES = ['/api/auth/updatedetails', '/api/auth/profile'];
 app.use(PROFILE_ROUTES, express.json({ limit: '10mb' }));
+app.use('/api/courses', express.json({ limit: '25mb' }));
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ limit: '1mb', extended: true }));
 
