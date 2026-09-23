@@ -249,7 +249,12 @@ const BookingModel = {
     if (refundRequested) { where.push("refund_status = 'Requested'"); }
     else if (paymentStatus) { where.push('payment_status = ?'); params.push(paymentStatus); }
     if (fromDate) { where.push('created_at >= ?'); params.push(toSqlDateTime(fromDate)); }
-    if (toDate) { where.push('created_at <= ?'); params.push(toSqlDateTime(`${toDate}T23:59:59.999Z`)); }
+    if (toDate) {
+      // Whole of the `to` day; the validator hands over a Date, so take its UTC calendar day
+      const day = toDate instanceof Date ? toDate.toISOString().slice(0, 10) : String(toDate).slice(0, 10);
+      where.push('created_at <= ?');
+      params.push(`${day} 23:59:59`);
+    }
     const whereSql = where.length ? ` WHERE ${where.join(' AND ')}` : '';
     return db.query(`SELECT ${SELECT} FROM bookings${whereSql} ORDER BY created_at DESC, id DESC`, params);
   },

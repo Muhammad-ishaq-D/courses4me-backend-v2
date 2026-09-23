@@ -175,6 +175,16 @@ describe('GET /api/bookings (admin)', () => {
     expect(search.body.data.every(b => b.customerDetails.email === 'dupe@example.test')).toBe(true);
   });
 
+  it('includes the whole of the to-date day', async () => {
+    const today = new Date().toISOString().slice(0, 10);
+    const res = await request(app).get(`/api/bookings?search=&fromDate=2020-01-01&toDate=${today}`).set('Authorization', asAdmin());
+    expect(res.status).toBe(200);
+    expect(res.body.count).toBeGreaterThan(0);
+
+    const before = await request(app).get('/api/bookings?toDate=2020-01-01').set('Authorization', asAdmin());
+    expect(before.body.count).toBe(0);
+  });
+
   it('requires an admin', async () => {
     expect((await request(app).get('/api/bookings')).status).toBe(401);
     expect((await request(app).get('/api/bookings').set('Authorization', asCustomer())).status).toBe(403);

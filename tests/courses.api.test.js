@@ -157,6 +157,8 @@ describe('POST /api/courses', () => {
     expect(data).toMatchObject({ title: 'CCTV Operator Training', category: 'Specialist', isPopular: true, status: 'Published' });
     expect(data.pricing).toEqual({ basePrice: 249.5, salePrice: 199, originalPrice: null });
     expect(data.instructor.name).toBe('Jane Trainer');
+    // 6-hex reference shown in the admin course table
+    expect(data.reference).toMatch(/^[0-9A-F]{6}$/);
 
     // blank list entries are dropped, order is kept
     expect(data.highlights).toEqual(['SIA approved', 'Small groups']);

@@ -1,3 +1,4 @@
+const crypto = require('crypto');
 const db = require('../config/db');
 
 // camelCase (API) -> snake_case (column) for the scalar fields of `courses`.
@@ -43,6 +44,12 @@ const toSqlDate = (v) => {
   if (v instanceof Date) return v.toISOString().slice(0, 10);
   return String(v).slice(0, 10);
 };
+/**
+ * The 6-character reference shown in the admin course table. An imported
+ * course keeps the one it had (the tail of its old record id).
+ */
+const generateReference = (legacyId) =>
+  (legacyId ? String(legacyId).slice(-6) : crypto.randomBytes(3).toString('hex')).toUpperCase();
 const toNumberOrNull = (v) => (v === null || v === undefined || v === '' ? null : Number(v));
 
 /**
@@ -98,6 +105,7 @@ function toPublic(row, { listItems = [], venues = [], sessions = [] } = {}) {
   return {
     id: row.id,
     _id: String(row.id),
+    reference: row.reference,
     title: row.title,
     category: row.category,
     subtitle: row.subtitle,
@@ -235,7 +243,7 @@ async function insertVenues(conn, courseId, venues) {
   }
 }
 
-const SELECT = 'id, title, category, subtitle, level, duration, reviews_count, booked_count, pass_rate, ' +
+const SELECT = 'id, reference, title, category, subtitle, level, duration, reviews_count, booked_count, pass_rate, ' +
   'short_description, full_description, guarantee_title, guarantee_description, thumbnail, ' +
   'base_price, sale_price, original_price, location_id, center_id, center_name, ' +
   'instructor_name, instructor_title, instructor_bio, instructor_photo, status, is_popular, created_at, updated_at';
@@ -316,13 +324,22 @@ const CourseModel = {
   /** Creates the course with its lists and venues; returns the new id. */
   async create(data) {
     return db.withTransaction(async (trx) => {
-      const cols = toColumns(data);
-      const keys = Object.keys(cols);
-      const result = await trx.query(
-        `INSERT INTO courses (${keys.join(', ')}) VALUES (${keys.map(() => '?').join(', ')})`,
-        Object.values(cols)
-      );
-      const id = result.insertId;
+      let id;
+      // Retry on the (very unlikely) duplicate reference
+      for (let attempt = 0; attempt < 5 && !id; attempt++) {
+        const cols = { reference: generateReference(attempt === 0 && data.legacyId), ...toColumns(data) };
+        const keys = Object.keys(cols);
+        try {
+          const result = await trx.query(
+            `INSERT INTO courses (${keys.join(', ')}) VALUES (${keys.map(() => '?').join(', ')})`,
+            Object.values(cols)
+          );
+          id = result.insertId;
+        } catch (err) {
+          if (!(err.code === 'ER_DUP_ENTRY' && /uq_courses_reference/.test(err.message))) throw err;
+        }
+      }
+      if (!id) throw new Error('Could not allocate a unique course reference');
       await insertListItems(trx, id, data);
       await insertVenues(trx, id, data.locations);
       return id;

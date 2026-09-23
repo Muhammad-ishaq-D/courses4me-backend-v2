@@ -89,6 +89,7 @@ function createMockDb({ users = [], courses = [], locations = [], courseLocation
     const { highlights, learningPoints, targetAudience, requirements, locations, pricing, instructor, ...rest } = c;
     state.courses.push({
       id,
+      reference: String(id).padStart(6, "0"),
       title: c.title || 'Test Course',
       category: c.category || 'SIA Training',
       subtitle: null, level: 'Level 2', duration: c.duration || '1 Day',
@@ -271,8 +272,8 @@ function createMockDb({ users = [], courses = [], locations = [], courseLocation
       if (/status = \?/.test(q)) { const v = params[i++]; rows = rows.filter(b => b.status === v); }
       if (/refund_status = 'Requested'/.test(q)) rows = rows.filter(b => b.refund_status === 'Requested');
       if (/payment_status = \?/.test(q)) { const v = params[i++]; rows = rows.filter(b => b.payment_status === v); }
-      if (/created_at >= \?/.test(q)) { const v = new Date(params[i++]); rows = rows.filter(b => b.created_at >= v); }
-      if (/created_at <= \?/.test(q)) { const v = new Date(params[i++]); rows = rows.filter(b => b.created_at <= v); }
+      if (/created_at >= \?/.test(q)) { const v = new Date(String(params[i++]).replace(' ', 'T') + 'Z'); rows = rows.filter(b => b.created_at >= v); }
+      if (/created_at <= \?/.test(q)) { const v = new Date(String(params[i++]).replace(' ', 'T') + 'Z'); rows = rows.filter(b => b.created_at <= v); }
       return rows.sort((a, b) => b.created_at - a.created_at || b.id - a.id).map(b => ({ ...b }));
     }
     if (/^INSERT INTO bookings \(/.test(q)) {
@@ -644,7 +645,7 @@ function createMockDb({ users = [], courses = [], locations = [], courseLocation
   // Handles the SQL emitted by courseModel / courseSessionService / licenseLookupService.
   function routeCourses(q, params) {
     // reads
-    if (/^SELECT id, title, category.* FROM courses WHERE id = \? LIMIT 1/.test(q)) {
+    if (/^SELECT id, (reference, )?title, category.* FROM courses WHERE id = \? LIMIT 1/.test(q)) {
       const c = state.courses.find(x => x.id === Number(params[0]));
       return c ? [{ ...c }] : [];
     }
