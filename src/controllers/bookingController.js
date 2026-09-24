@@ -543,6 +543,8 @@ const BookingController = {
         action,
         newStartDate,
         newEndDate,
+        paymentLink,
+        feePence: RESCHEDULE_FEE_PENCE,
         userEmail: userRow?.email || updated.customerDetails.email,
         userName: userRow?.name || updated.customerDetails.firstName,
         userStatus: userRow?.status
@@ -551,8 +553,7 @@ const BookingController = {
       res.status(200).json({
         success: true,
         data: updated,
-        lifecycleStatus: calculateLifecycleStatus(updated),
-        ...(paymentLink ? { paymentLink } : {})
+        lifecycleStatus: calculateLifecycleStatus(updated)
       });
     } catch (error) {
       next(error);

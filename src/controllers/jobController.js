@@ -218,7 +218,8 @@ const JobController = {
 
       await emails.statusChanged({ application, status, reason });
 
-      res.status(200).json({ success: true, data: application });
+      // Under both keys, as the previous API answered.
+      res.status(200).json({ success: true, data: application, application });
     } catch (error) {
       next(error);
     }

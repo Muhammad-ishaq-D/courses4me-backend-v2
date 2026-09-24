@@ -194,7 +194,7 @@ const BookingEmailService = {
   },
 
   /** Sent after an admin extends, reschedules, postpones, cancels or completes. */
-  async lifecycleUpdate({ booking, course, action, newStartDate, newEndDate, userEmail, userName, userStatus }) {
+  async lifecycleUpdate({ booking, course, action, newStartDate, newEndDate, paymentLink, feePence, userEmail, userName, userStatus }) {
     if (!userEmail || userStatus === 'inactive') return;
     const templateKey = action === 'cancel' ? 'bookingCancellation' : action === 'complete' ? 'courseCompletion' : null;
     if (templateKey && !(await isEmailTemplateActive(templateKey))) return;
@@ -205,6 +205,18 @@ const BookingEmailService = {
       details = row('New End Date', longDate(newEndDate));
     } else if (action === 'reschedule') {
       details = row('New Start Date', longDate(newStartDate)) + row('New End Date', longDate(newEndDate));
+      // The new dates only take effect once the fee is paid, so the button to
+      // pay it has to travel with them.
+      if (paymentLink) {
+        const fee = (Number(feePence) / 100).toFixed(2).replace(/\.00$/, '');
+        details += `
+          <tr>
+            <td colspan="2" style="padding: 20px 0 10px; text-align: center;">
+              <p style="color: #ef4444; font-weight: bold; margin-bottom: 10px;">Please pay the £${fee} rescheduling fee to confirm your new dates.</p>
+              <a href="${paymentLink}" style="display: inline-block; background-color: ${BRAND}; color: #ffffff; padding: 10px 20px; text-decoration: none; border-radius: 6px; font-weight: 600;">Pay Rescheduling Fee (£${fee})</a>
+            </td>
+          </tr>`;
+      }
     }
 
     const completion = action === 'complete' ? `

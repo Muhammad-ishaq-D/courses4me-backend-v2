@@ -282,8 +282,14 @@ describe('admin booking actions', () => {
     const withFee = await request(app).put(`/api/bookings/${id}/lifecycle`).set('Authorization', asAdmin())
       .send({ action: 'reschedule', newStartDate: '2027-01-18', newEndDate: '2027-01-20', reason: 'Clash' });
     expect(withFee.status).toBe(200);
-    expect(withFee.body.paymentLink).toBe('https://checkout.stripe.test/reschedule');
     expect(withFee.body.data.pendingReschedule).toMatchObject({ status: 'Awaiting Payment' });
+    // The dates only apply once the fee is paid, so the customer has to be
+    // sent the link to pay it.
+    const feeEmail = sendEmail.mock.calls
+      .map(([m]) => m)
+      .find(m => String(m.html).includes('https://checkout.stripe.test/reschedule'));
+    expect(feeEmail).toBeDefined();
+    expect(feeEmail.html).toContain('Pay Rescheduling Fee (£70)');
     expect(withFee.body.data.session.startDate).not.toContain('2027-01-18'); // not applied yet
 
     const bypassed = await request(app).put(`/api/bookings/${id}/lifecycle`).set('Authorization', asAdmin())
@@ -526,6 +532,9 @@ describe('Stripe webhook', () => {
     expect(String(row.session_start_date)).toContain('2027-03-01');
     expect(row.pending_reschedule_start_date).toBeNull();
     expect(mockDb.state.bookingReschedules.some(r => r.booking_id === id)).toBe(true);
+    // The fee is a separate charge: it must not replace the payment the
+    // customer made for the course, or a later refund would target £70.
+    expect(row.payment_intent_id).not.toBe('pi_resched');
   });
 
   it('refunds a late payment when the seat has gone', async () => {

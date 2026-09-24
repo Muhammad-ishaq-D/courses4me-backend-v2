@@ -105,7 +105,7 @@ const StripeController = {
 /** Sends a paid event to the right handler. */
 async function route(bookingId, action, paymentIntentId) {
   if (!bookingId) return;
-  if (action === 'reschedulePayment') return handleReschedulePaid(bookingId, paymentIntentId);
+  if (action === 'reschedulePayment') return handleReschedulePaid(bookingId);
   return handlePaymentSucceeded(bookingId, paymentIntentId);
 }
 
@@ -154,7 +154,7 @@ async function handlePaymentSucceeded(bookingId, paymentIntentId) {
 }
 
 /** Applies the new dates once the rescheduling fee is paid. */
-async function handleReschedulePaid(bookingId, paymentIntentId) {
+async function handleReschedulePaid(bookingId) {
   const row = await BookingModel.findById(bookingId);
   if (!row || !row.pending_reschedule_start_date) {
     logger.error(`[stripe] booking ${bookingId} has no reschedule awaiting payment`);
@@ -168,11 +168,14 @@ async function handleReschedulePaid(bookingId, paymentIntentId) {
     newEndDate: row.pending_reschedule_end_date,
     reason: row.pending_reschedule_reason
   });
+  // The booking keeps the payment intent of the course itself. This one paid
+  // the rescheduling fee, which is a separate charge — putting it on the
+  // booking would leave a later refund pointing at £70 instead of the fee the
+  // customer actually paid for the course.
   await BookingModel.update(row.id, {
     session: { startDate: row.pending_reschedule_start_date, endDate: row.pending_reschedule_end_date },
     lifecycleStatus: 'Upcoming',
-    pendingReschedule: null,
-    ...(paymentIntentId ? { paymentIntentId } : {})
+    pendingReschedule: null
   });
 
   const booking = await expandBooking(await BookingModel.findById(row.id), { withChildren: false });
