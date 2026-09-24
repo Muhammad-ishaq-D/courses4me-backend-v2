@@ -14,7 +14,7 @@ mounted in `src/app.js`.
 | Bookings, payments (Stripe) and the payment-window job | ready |
 | Settings, notifications, dashboard and the weekly report | ready |
 | Licences (bookable, with their own venues) | ready |
-| Jobs (listings, applications) | pending |
+| Jobs (vacancies and applications) | ready |
 | Reviews, Notifications, Settings, Dashboard, weekly report cron | pending |
 
 ## Setup
@@ -61,7 +61,8 @@ Schema is managed with [Knex migrations](https://knexjs.org/guide/migrations.htm
   `booking_extension_history`, `booking_reschedule_history`, `booking_attendance`,
   `booking_certificates`, `settings`, `notifications`, `licenses`, `license_list_items`,
   `license_application_steps`, `license_pricing_breakdown`, `license_related_courses`,
-  `license_venues`, `license_venue_schedules`.
+  `license_venues`, `license_venue_schedules`, `job_listings`, `job_listing_requirements`,
+  `job_applications`.
 
 ## Project layout
 
@@ -352,6 +353,38 @@ books it through the same endpoint they book a course with.
 `session_schedule_source = 'license_venue_schedule'`, and the seat is taken from
 `license_venue_schedules` by the same atomic reservation used for courses.
 
+## Jobs
+
+### Endpoints
+
+| Method | Path | Access | Notes |
+| --- | --- | --- | --- |
+| GET | `/api/jobs` | public | `?category=&type=&status=&search=`; paused and closed vacancies are included |
+| GET | `/api/jobs/:id` | public | returned under `data` and `listing` |
+| POST | `/api/jobs` | admin | required: `title`, `company`, `location`, `category`, `salary`, `description` |
+| PUT | `/api/jobs/:id` | admin | partial; `requirements` replaced only when sent |
+| DELETE | `/api/jobs/:id` | admin | applications are kept (see below) |
+| POST | `/api/jobs/apply/:id` | public | one application per candidate per vacancy |
+| GET | `/api/jobs/my-applications` | user | the candidate's own applications, with the vacancy attached |
+| GET | `/api/jobs/applications` | admin | `?status=&search=` |
+| PUT | `/api/jobs/applications/:id/status` | admin | moves the stage and emails the candidate |
+
+### Rules
+
+- **One application per candidate per vacancy.** A signed-in candidate is matched by account, a
+  guest by email address; a second attempt answers 400.
+- **Applying can create an account.** Send a `password` with the form and a customer account is
+  created and linked to the application; signing in first links it to that account instead.
+- `requirements` may be sent as an array or as one comma-separated line — both are stored as an
+  ordered list.
+- **Applications outlive their vacancy.** Each one keeps its own copy of the job title, and
+  `job_listing_id` is `ON DELETE SET NULL`, so the review queue still reads correctly after a
+  vacancy is withdrawn.
+- Each application gets a `REF-XXXXXXX` reference; the candidate is emailed on submission and on
+  every stage change (`services/jobEmailService.js`), and the admins get a notification.
+- The listing returns the same array under `listings` and `data.listings`; the review queue under
+  `applications` and `data.applications`.
+
 ## Authorization model
 
 | Role | Access |
@@ -384,6 +417,7 @@ npm run postman:locations # scripts/update_postman_locations.js — folders 7–
 npm run postman:bookings # scripts/update_postman_bookings.js — folders 9–11
 npm run postman:admin   # scripts/update_postman_admin.js — folders 12–14
 npm run postman:licenses # scripts/update_postman_licenses.js — folder 15
+npm run postman:jobs    # scripts/update_postman_jobs.js — folder 16
 ```
 
 Set `baseUrl`, `testEmail`/`testPassword`, `adminEmail`/`adminPassword`. Login requests

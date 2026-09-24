@@ -3947,6 +3947,454 @@
           ]
         }
       ]
+    },
+    {
+      "name": "16. Jobs",
+      "description": "The jobs board: vacancies and the applications against them. Reads are public, vacancy management and the review queue need {{adminToken}}. Paused and closed vacancies stay visible so the board can badge them.",
+      "item": [
+        {
+          "name": "List Vacancies",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/jobs?category=Door Supervisor&type=Full-time&status=Active&search=supervisor",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "jobs"
+              ],
+              "query": [
+                {
+                  "key": "category",
+                  "value": "Door Supervisor",
+                  "description": "SIA Training, First Aid, Health & Safety, Specialist, Security Officer, Door Supervisor, Event Security, CCTV Operator, Close Protection, First Aider, Paediatric First Aider, Safety Inspector, Risk Assessor, Security Manager",
+                  "disabled": true
+                },
+                {
+                  "key": "type",
+                  "value": "Full-time",
+                  "description": "Full-time | Part-time | Contract | Internship | Remote",
+                  "disabled": true
+                },
+                {
+                  "key": "status",
+                  "value": "Active",
+                  "description": "Active | Paused | Closed",
+                  "disabled": true
+                },
+                {
+                  "key": "search",
+                  "value": "supervisor",
+                  "description": "matches title, company or description",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "The same array comes back under `listings` and `data.listings`, with `count`."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Vacancies listed\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "    pm.expect(pm.response.json().success).to.eql(true);",
+                  "});",
+                  "var body = pm.response.json();",
+                  "if (body.listings && body.listings[0]) { pm.collectionVariables.set(\"jobId\", body.listings[0].id); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Vacancy",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/jobs/{{jobId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "jobs",
+                "{{jobId}}"
+              ]
+            },
+            "description": "Returned under `data` and `listing`."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Request succeeded\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "    pm.expect(pm.response.json().success).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create Vacancy",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/jobs",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "jobs"
+              ]
+            },
+            "description": "Required: title, company, location, category, salary, description. `requirements` may be an array or one comma-separated line — both are stored as an ordered list.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Door Supervisor\",\n  \"company\": \"Courses4Me\",\n  \"location\": \"London\",\n  \"type\": \"Full-time\",\n  \"category\": \"Door Supervisor\",\n  \"career\": \"Door Supervisor\",\n  \"salary\": \"£12 - £14 per hour\",\n  \"description\": \"Work the door at licensed venues across London, checking ID and keeping guests safe.\",\n  \"requirements\": [\n    \"Valid SIA licence\",\n    \"18 or over\",\n    \"Right to work in the UK\"\n  ],\n  \"status\": \"Active\",\n  \"isFeatured\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Vacancy created\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "    pm.expect(pm.response.json().success).to.eql(true);",
+                  "});",
+                  "var body = pm.response.json();",
+                  "if (body.data && body.data.id) { pm.collectionVariables.set(\"jobId\", body.data.id); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update Vacancy",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/jobs/{{jobId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "jobs",
+                "{{jobId}}"
+              ]
+            },
+            "description": "Only the fields sent change. Sending `requirements` replaces the whole list; leaving it out keeps it.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"Paused\",\n  \"salary\": \"£13 - £15 per hour\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Vacancy updated\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "    pm.expect(pm.response.json().success).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Delete Vacancy",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/jobs/{{jobId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "jobs",
+                "{{jobId}}"
+              ]
+            },
+            "description": "Applications already made are kept — they hold their own copy of the job title and their `jobId` becomes null."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Vacancy deleted\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "    pm.expect(pm.response.json().success).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Apply for a Vacancy",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/jobs/apply/{{jobId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "jobs",
+                "apply",
+                "{{jobId}}"
+              ]
+            },
+            "description": "Public. One application per candidate per vacancy, matched by account when signed in and by email otherwise. Add a `password` field to create an account with the application. Send an Authorization header to link it to an existing account. Returns the reference as `refNumber`.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"firstName\": \"Test\",\n  \"lastName\": \"Candidate\",\n  \"email\": \"{{testEmail}}\",\n  \"phone\": \"07000000000\",\n  \"address\": \"12 Test Road\",\n  \"city\": \"London\",\n  \"postcode\": \"SW1A 1AA\",\n  \"license\": \"SIA Licensed\",\n  \"experience\": \"2 years\",\n  \"availability\": \"Immediately\",\n  \"cover\": \"I would like to join the team because…\",\n  \"cvFile\": \"cv_resume.pdf\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Application submitted\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "    pm.expect(pm.response.json().success).to.eql(true);",
+                  "});",
+                  "var body = pm.response.json();",
+                  "if (body.data && body.data.id) { pm.collectionVariables.set(\"jobApplicationId\", body.data.id); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "My Applications",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/jobs/my-applications",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "jobs",
+                "my-applications"
+              ]
+            },
+            "description": "Everything this candidate has applied for, by account or by the email on the account, with the vacancy attached as `jobId`."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Request succeeded\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "    pm.expect(pm.response.json().success).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "All Applications (admin)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/jobs/applications?status=Pending&search=candidate",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "jobs",
+                "applications"
+              ],
+              "query": [
+                {
+                  "key": "status",
+                  "value": "Pending",
+                  "description": "Pending | Shortlisted | Interview | Rejected | Accepted",
+                  "disabled": true
+                },
+                {
+                  "key": "search",
+                  "value": "candidate",
+                  "description": "matches first name, last name, email or job title",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "The same array under `applications` and `data.applications`."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Request succeeded\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "    pm.expect(pm.response.json().success).to.eql(true);",
+                  "});",
+                  "var body = pm.response.json();",
+                  "if (body.applications && body.applications[0]) { pm.collectionVariables.set(\"jobApplicationId\", body.applications[0].id); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update Application Status",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/jobs/applications/{{jobApplicationId}}/status",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "jobs",
+                "applications",
+                "{{jobApplicationId}}",
+                "status"
+              ]
+            },
+            "description": "Moves the application to a new stage and emails the candidate. `reason` is optional and is included in that email.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"Shortlisted\",\n  \"reason\": \"Strong experience for this role\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status updated\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "    pm.expect(pm.response.json().success).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
     }
   ],
   "variable": [
@@ -4047,6 +4495,16 @@
     },
     {
       "key": "licenseScheduleId",
+      "value": "1",
+      "type": "string"
+    },
+    {
+      "key": "jobId",
+      "value": "1",
+      "type": "string"
+    },
+    {
+      "key": "jobApplicationId",
       "value": "1",
       "type": "string"
     }

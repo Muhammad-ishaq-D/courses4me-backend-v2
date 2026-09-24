@@ -7,5 +7,6 @@ module.exports = {
   booking: require('./bookingValidator'),
   settings: require('./settingsValidator'),
   dashboard: require('./dashboardValidator'),
-  license: require('./licenseValidator')
+  license: require('./licenseValidator'),
+  job: require('./jobValidator')
 };
