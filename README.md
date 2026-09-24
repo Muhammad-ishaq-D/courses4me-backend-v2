@@ -16,6 +16,7 @@ mounted in `src/app.js`.
 | Licences (bookable, with their own venues) | ready |
 | Jobs (vacancies and applications) | ready |
 | Reviews | ready |
+| Blog (articles for the public site) | ready |
 
 ## Setup
 
@@ -64,7 +65,7 @@ Schema is managed with [Knex migrations](https://knexjs.org/guide/migrations.htm
   `booking_certificates`, `settings`, `notifications`, `licenses`, `license_list_items`,
   `license_application_steps`, `license_pricing_breakdown`, `license_related_courses`,
   `license_venues`, `license_venue_schedules`, `job_listings`, `job_listing_requirements`,
-  `job_applications`, `reviews`.
+  `job_applications`, `reviews`, `blogs`, `blog_blocks`, `blog_block_items`.
 
 ## Importing the previous data
 
@@ -463,6 +464,44 @@ books it through the same endpoint they book a course with.
 - The admins are notified on a **new** review only, gated by the `courseReview` toggle.
 - Scores feed `topCourses[].rating` and `reviewCount` on the analytics page.
 
+## Blog
+
+| Method | Path | Access | Notes |
+| --- | --- | --- | --- |
+| GET | `/api/blogs` | public | published articles, featured first; `category`, `search`, `page`, `limit` |
+| GET | `/api/blogs/:id` | public | by numeric id **or** slug; returns the body and counts a read |
+| POST | `/api/blogs` | admin | `title` is the only required field |
+| PUT | `/api/blogs/:id` | admin | partial; the body is replaced only when `content` is sent |
+| DELETE | `/api/blogs/:id` | admin | blocks and list items cascade |
+| DELETE | `/api/blogs` | admin | `{ ids: [1, 2] }`, returns `deleted` |
+
+- **The body is blocks, not HTML.** An article is an ordered list of `paragraph`, `heading`,
+  `subheading`, `quote`, `list` and `numberedList`. The list types carry `items`; the rest carry
+  `text`, and sending the wrong one is a 400 rather than a silent drop. `blog_blocks` holds one
+  row per block and `blog_block_items` the entries of a list, both ordered by `position`.
+- **A visitor only ever sees published articles.** `status` is honoured for an admin token and
+  ignored for everyone else, so `?status=Draft` cannot leak an unfinished article.
+- **Slugs are unique and derived.** An empty slug is made from the title; a clash gets a number
+  appended. The numeric id keeps working, so the portal's `/blog/:id` links are unaffected.
+- A cover posted as a `data:image/...` URI is uploaded to Cloudinary (`courses4me/blogs`) and the
+  article stores the URL, so a row never carries a few hundred kilobytes of image.
+- `GET /api/blogs` also returns `categories`, the published count per category, which is what the
+  filter bar on the blog page counts with.
+
+### Seeding the articles the portal used to carry
+
+The portal used to hold its 12 articles in `course4me/src/data/blogs.js`. They now live here:
+
+```bash
+npm run seed:blogs -- --dry-run     # report what it would do
+npm run seed:blogs                  # write them, uploading each cover once
+```
+
+Keyed on the id each article has in that file, so running it again updates rather than
+duplicates. Two of those articles share a slug, which the database will not allow — the second
+gets `-2`. A cover that is already hosted is never re-uploaded, so replacing one in the admin
+survives a re-run.
+
 ## Authorization model
 
 | Role | Access |
@@ -497,6 +536,7 @@ npm run postman:admin   # scripts/update_postman_admin.js — folders 12–14
 npm run postman:licenses # scripts/update_postman_licenses.js — folder 15
 npm run postman:jobs    # scripts/update_postman_jobs.js — folder 16
 npm run postman:reviews # scripts/update_postman_reviews.js — folder 17
+npm run postman:blogs   # scripts/update_postman_blogs.js — folder 18
 ```
 
 Set `baseUrl`, `testEmail`/`testPassword`, `adminEmail`/`adminPassword`. Login requests

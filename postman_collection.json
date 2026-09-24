@@ -4487,6 +4487,318 @@
           ]
         }
       ]
+    },
+    {
+      "name": "18. Blog",
+      "description": "Articles for the blog. Reading is public and only ever returns published articles; an admin token additionally sees drafts. The body is a list of typed blocks — paragraph, heading, subheading, quote, and list / numberedList which carry `items` instead of `text` — rendered in the order given.",
+      "item": [
+        {
+          "name": "List Articles",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/blogs?category=Career Guide&search=&page=1&limit=10",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "blogs"
+              ],
+              "query": [
+                {
+                  "key": "category",
+                  "value": "Career Guide"
+                },
+                {
+                  "key": "search",
+                  "value": ""
+                },
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "10"
+                }
+              ]
+            },
+            "description": "Published articles, the featured one first, then newest first. Every parameter is optional. The response also carries `categories`, the count of published articles per category, for the filter bar. Categories: Career Guide, Industry News, Study Tips, Company News, Training, Technology."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Request succeeded\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "    pm.expect(pm.response.json().success).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List Articles (admin, drafts included)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/blogs?status=Draft",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "blogs"
+              ],
+              "query": [
+                {
+                  "key": "status",
+                  "value": "Draft"
+                }
+              ]
+            },
+            "description": "With an admin token, `status` is honoured and drafts are returned. Without one, the filter is ignored and only published articles come back."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Request succeeded\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "    pm.expect(pm.response.json().success).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get One Article",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/blogs/{{blogId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "blogs",
+                "{{blogId}}"
+              ]
+            },
+            "description": "Accepts the numeric id or the slug, so /blogs/1 and /blogs/how-to-become-a-door-supervisor-2026 are the same article. Returns the body under `content`, and counts a read. A draft answers 404 unless the caller is an admin."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Request succeeded\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "    pm.expect(pm.response.json().success).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create Article",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/blogs",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "blogs"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"How to Become a Door Supervisor in 2026\",\n  \"excerpt\": \"Everything you need to know about getting your SIA Door Supervisor licence.\",\n  \"category\": \"Career Guide\",\n  \"author\": \"Sarah Mitchell\",\n  \"role\": \"Senior Training Manager\",\n  \"image\": \"https://res.cloudinary.com/demo/image/upload/sample.jpg\",\n  \"publishDate\": \"Feb 28, 2026\",\n  \"readTime\": \"8 min read\",\n  \"featured\": false,\n  \"status\": \"Published\",\n  \"content\": [\n    {\n      \"type\": \"paragraph\",\n      \"text\": \"Becoming a door supervisor is one of the most accessible careers in UK security.\"\n    },\n    {\n      \"type\": \"heading\",\n      \"text\": \"Training Requirements\"\n    },\n    {\n      \"type\": \"paragraph\",\n      \"text\": \"You need an SIA-approved Level 2 Award, which covers:\"\n    },\n    {\n      \"type\": \"list\",\n      \"items\": [\n        \"Conflict management\",\n        \"Physical intervention\",\n        \"Working in the private security industry\"\n      ]\n    },\n    {\n      \"type\": \"subheading\",\n      \"text\": \"How long it takes\"\n    },\n    {\n      \"type\": \"numberedList\",\n      \"items\": [\n        \"Book the course\",\n        \"Sit the assessments\",\n        \"Apply for the licence\"\n      ]\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Admin only. `title` is the only required field. The slug is made from the title when one is not given, and a clash gets a number appended. `image` may be a URL or a base64 data URI — a data URI is uploaded and the article stores the URL. Setting `status` to Published stamps `publishedAt`."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Article created\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "    pm.expect(pm.response.json().success).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update Article",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/blogs/{{blogId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "blogs",
+                "{{blogId}}"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"How to Become a Door Supervisor in 2026\",\n  \"status\": \"Published\",\n  \"featured\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Admin only, and partial: only the fields sent are changed. The body is replaced only when `content` is included, so renaming an article never empties it."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Article updated\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "    pm.expect(pm.response.json().success).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Delete Article",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/blogs/{{blogId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "blogs",
+                "{{blogId}}"
+              ]
+            },
+            "description": "Admin only. The body blocks and their list items go with it."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Article deleted\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "    pm.expect(pm.response.json().success).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Delete Several Articles",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/blogs",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "blogs"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"ids\": [\n    1,\n    2\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Admin only. Returns `deleted`, how many rows went."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Articles deleted\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "    pm.expect(pm.response.json().success).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
     }
   ],
   "variable": [
@@ -4597,6 +4909,11 @@
     },
     {
       "key": "jobApplicationId",
+      "value": "1",
+      "type": "string"
+    },
+    {
+      "key": "blogId",
       "value": "1",
       "type": "string"
     }

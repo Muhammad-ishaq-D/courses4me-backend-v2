@@ -9,5 +9,6 @@ module.exports = {
   dashboard: require('./dashboardValidator'),
   license: require('./licenseValidator'),
   job: require('./jobValidator'),
-  review: require('./reviewValidator')
+  review: require('./reviewValidator'),
+  blog: require('./blogValidator')
 };

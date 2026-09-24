@@ -3,6 +3,7 @@ const bcrypt = require('bcryptjs');
 const { createAdminRouter } = require('./mockAdminQueries');
 const { createLicenseRouter } = require('./mockLicenseQueries');
 const { createJobRouter } = require('./mockJobQueries');
+const { createBlogRouter } = require('./mockBlogQueries');
 
 /**
  * In-memory stand-in for src/config/db.
@@ -16,7 +17,7 @@ const { createJobRouter } = require('./mockJobQueries');
  *   const mockDb = createMockDb({ users: [{ id: 1, email: 'a@b.c', password: 'Secret1!', role: 'admin' }] });
  *   jest.mock('../src/config/db', () => mockDb);
  */
-function createMockDb({ users = [], courses = [], locations = [], courseLocations = [], bookings = [], licenses = [], jobListings = [], jobApplications = [] } = {}) {
+function createMockDb({ users = [], courses = [], locations = [], courseLocations = [], bookings = [], licenses = [], jobListings = [], jobApplications = [], blogs = [] } = {}) {
   const now = () => new Date();
   const state = {
     users: [],
@@ -52,6 +53,9 @@ function createMockDb({ users = [], courses = [], locations = [], courseLocation
     jobRequirements: [],
     jobApplications: [],
     reviews: [],
+    blogs: [],
+    blogBlocks: [],
+    blogBlockItems: [],
     seq: {
       users: 0, activity: 0, devices: 0, resets: 0, audit: 0,
       courses: 0, courseListItems: 0, courseVenues: 0, courseSchedules: 0,
@@ -60,7 +64,8 @@ function createMockDb({ users = [], courses = [], locations = [], courseLocation
       notifications: 0,
       licenses: 0, licenseListItems: 0, licenseSteps: 0, licensePricing: 0, licenseVenues: 0, licenseSchedules: 0,
       jobListings: 0, jobRequirements: 0, jobApplications: 0,
-      reviews: 0
+      reviews: 0,
+      blogs: 0, blogBlocks: 0, blogBlockItems: 0
     },
     tables: new Set([
       'users', 'user_activity_logs', 'user_devices', 'password_resets', 'audit_logs',
@@ -71,7 +76,8 @@ function createMockDb({ users = [], courses = [], locations = [], courseLocation
       'booking_attendance', 'booking_certificates', 'settings', 'notifications',
       'licenses', 'license_list_items', 'license_application_steps', 'license_pricing_breakdown',
       'license_related_courses', 'license_venues', 'license_venue_schedules',
-      'job_listings', 'job_listing_requirements', 'job_applications', 'reviews'
+      'job_listings', 'job_listing_requirements', 'job_applications', 'reviews',
+      'blogs', 'blog_blocks', 'blog_block_items'
     ]),
     log: []
   };
@@ -800,6 +806,8 @@ function createMockDb({ users = [], courses = [], locations = [], courseLocation
   const jobRouter = createJobRouter({ state, nextId, now });
   jobListings.forEach(jobRouter.seedListing);
   jobApplications.forEach(jobRouter.seedApplication);
+  const blogRouter = createBlogRouter({ state, nextId, now });
+  blogs.forEach(blogRouter.seedBlog);
 
   function route(sql, params = []) {
     const q = sql.replace(/\s+/g, ' ').trim();
@@ -818,6 +826,12 @@ function createMockDb({ users = [], courses = [], locations = [], courseLocation
     // ── jobs ──────────────────────────────────────────────────────────────
     if (/\bjob_/.test(q)) {
       const handled = jobRouter.route(q, params);
+      if (handled !== undefined) return handled;
+    }
+
+    // ── blog ──────────────────────────────────────────────────────────────
+    if (/\bblogs?\b|\bblog_/.test(q)) {
+      const handled = blogRouter.route(q, params);
       if (handled !== undefined) return handled;
     }
 

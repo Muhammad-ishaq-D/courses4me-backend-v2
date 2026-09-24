@@ -31,6 +31,7 @@ const courseLocationRoutes = require('./routes/courseLocationRoutes');
 const courseLocationDateRoutes = require('./routes/courseLocationDateRoutes');
 const settingsRoutes = require('./routes/settingsRoutes');
 const reviewRoutes = require('./routes/reviewRoutes');
+const blogRoutes = require('./routes/blogRoutes');
 
 const { errorHandler, notFoundHandler } = require('./middlewares/errorMiddleware');
 const { apiLimiter, loginLimiter, forgotPasswordLimiter, verifyOtpLimiter, resetPasswordLimiter } = require('./middlewares/rateLimiters');
@@ -97,11 +98,12 @@ app.use(passport.initialize());
 // Stripe webhooks need the raw body, so that router is mounted before express.json()
 app.use('/api/stripe', stripeRoutes);
 
-// Body limits: profile updates and the course form may carry base64 images,
-// everything else is small JSON
+// Body limits: profile updates, the course form and the article editor may
+// carry base64 images, everything else is small JSON
 const PROFILE_ROUTES = ['/api/auth/updatedetails', '/api/auth/profile'];
 app.use(PROFILE_ROUTES, express.json({ limit: '10mb' }));
 app.use('/api/courses', express.json({ limit: '25mb' }));
+app.use('/api/blogs', express.json({ limit: '15mb' }));
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ limit: '1mb', extended: true }));
 
@@ -157,6 +159,7 @@ app.use('/api/course-locations', courseLocationRoutes);
 app.use('/api/course-location-dates', courseLocationDateRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/reviews', reviewRoutes);
+app.use('/api/blogs', blogRoutes);
 
 // 404 for unknown paths, then the central error handler
 app.use(notFoundHandler);
