@@ -1,200 +1,141 @@
-const License = require('../models/License');
+const LicenseModel = require('../models/licenseModel');
 
-// @desc    Create new license
-// @route   POST /api/licenses
-// @access  Private/Admin
-exports.createLicense = async (req, res) => {
+const isAdmin = (req) => !!(req.user && req.user.role === 'admin');
+
+/** One licence with its lists, steps, fees, related courses and venues. */
+async function loadLicense(row, { fullRelatedCourses = false } = {}) {
+  const ids = [row.id];
+  const [listItems, applicationSteps, pricingBreakdown, relatedCourses, venues] = await Promise.all([
+    LicenseModel.listItemsFor(ids),
+    LicenseModel.applicationStepsFor(ids),
+    LicenseModel.pricingBreakdownFor(ids),
+    LicenseModel.relatedCoursesFor(ids, { full: fullRelatedCourses }),
+    LicenseModel.venuesFor(ids)
+  ]);
+
+  return LicenseModel.toPublic(row, {
+    listItems: listItems[row.id] || [],
+    applicationSteps: applicationSteps[row.id] || [],
+    pricingBreakdown: pricingBreakdown[row.id] || [],
+    relatedCourses: relatedCourses[row.id] || [],
+    venues: venues[row.id] || []
+  });
+}
+
+const LicenseController = {
+  // @desc    Create a licence
+  // @route   POST /api/licenses
+  // @access  Private/Admin
+  async create(req, res, next) {
     try {
-        let licenseData = { ...req.body };
+      const data = req.body;
+      // The credential is issued in the licence holder's name unless one is given.
+      if (!data.holderName && data.title) data.holderName = data.title;
 
-        // Parse any stringified JSON fields from multipart/form-data if applicable
-        const fieldsToParse = ['pricing', 'locations', 'instructor', 'highlights', 'learningPoints', 'requirements', 'applicationSteps', 'pricingBreakdown', 'relatedCourses'];
-        fieldsToParse.forEach(field => {
-            if (licenseData[field] && typeof licenseData[field] === 'string') {
-                try {
-                    licenseData[field] = JSON.parse(licenseData[field]);
-                } catch (e) {}
-            }
-        });
-
-        // Set holderName to title if not specified, and category defaults
-        if (!licenseData.holderName && licenseData.title) {
-            licenseData.holderName = licenseData.title;
-        }
-
-        const license = await License.create(licenseData);
-        res.status(201).json({
-            success: true,
-            data: license
-        });
+      const id = await LicenseModel.create(data);
+      const row = await LicenseModel.findById(id);
+      res.status(201).json({ success: true, data: await loadLicense(row) });
     } catch (error) {
-        res.status(400).json({
-            success: false,
-            message: error.message
-        });
+      next(error);
     }
+  },
+
+  // @desc    List licences
+  // @route   GET /api/licenses?category=&status=&search=&page=&limit=
+  // @access  Public
+  async getAll(req, res, next) {
+    try {
+      const page = Number(req.query.page) || 1;
+      const limit = Number(req.query.limit) || 10;
+      const { category, status, search } = req.query;
+      // Anyone who is not an admin only ever sees published licences.
+      const effectiveStatus = status || (isAdmin(req) ? undefined : 'Published');
+
+      const { rows, total } = await LicenseModel.findAll(
+        { category, status: effectiveStatus, search },
+        { limit, offset: (page - 1) * limit }
+      );
+
+      const ids = rows.map(r => r.id);
+      const [listItems, applicationSteps, pricingBreakdown, relatedCourses, venues] = await Promise.all([
+        LicenseModel.listItemsFor(ids),
+        LicenseModel.applicationStepsFor(ids),
+        LicenseModel.pricingBreakdownFor(ids),
+        LicenseModel.relatedCoursesFor(ids),
+        LicenseModel.venuesFor(ids)
+      ]);
+
+      const data = rows.map(row => LicenseModel.toPublic(row, {
+        listItems: listItems[row.id] || [],
+        applicationSteps: applicationSteps[row.id] || [],
+        pricingBreakdown: pricingBreakdown[row.id] || [],
+        relatedCourses: relatedCourses[row.id] || [],
+        venues: venues[row.id] || []
+      }));
+
+      res.status(200).json({
+        success: true,
+        licenses: data,
+        total,
+        page,
+        limit,
+        // The same list under the keys the other endpoints use
+        count: data.length,
+        data
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  // @desc    Get one licence
+  // @route   GET /api/licenses/:id
+  // @access  Public
+  async getById(req, res, next) {
+    try {
+      const row = await LicenseModel.findById(req.params.id);
+      if (!row) return res.status(404).json({ success: false, message: 'License not found' });
+
+      if (!isAdmin(req) && row.status !== 'Published') {
+        return res.status(403).json({ success: false, message: 'This license is currently not available' });
+      }
+
+      const license = await loadLicense(row, { fullRelatedCourses: true });
+      // Also spread at the top level, for callers that read the licence directly
+      res.status(200).json({ success: true, data: license, ...license });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  // @desc    Update a licence
+  // @route   PUT /api/licenses/:id
+  // @access  Private/Admin
+  async update(req, res, next) {
+    try {
+      const existing = await LicenseModel.findById(req.params.id);
+      if (!existing) return res.status(404).json({ success: false, message: 'License not found' });
+
+      await LicenseModel.update(existing.id, req.body);
+      const row = await LicenseModel.findById(existing.id);
+      res.status(200).json({ success: true, data: await loadLicense(row) });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  // @desc    Delete a licence
+  // @route   DELETE /api/licenses/:id
+  // @access  Private/Admin
+  async delete(req, res, next) {
+    try {
+      const deleted = await LicenseModel.delete(req.params.id);
+      if (!deleted) return res.status(404).json({ success: false, message: 'License not found' });
+      res.status(200).json({ success: true, message: 'License deleted successfully', data: {} });
+    } catch (error) {
+      next(error);
+    }
+  }
 };
 
-// @desc    Get all licenses
-// @route   GET /api/licenses
-// @access  Public
-exports.getLicenses = async (req, res) => {
-    try {
-        const { category, status, search, page = 1, limit = 10 } = req.query;
-        let query = {};
-
-        if (category) query.category = category;
-        
-        // Default to Published for public users, allow specific status for admins
-        if (status) {
-            query.status = status;
-        } else {
-            const isAdmin = req.user && req.user.role === 'admin';
-            if (!isAdmin) {
-                query.status = 'Published';
-            }
-        }
-
-        if (search) {
-            query.$or = [
-                { title: { $regex: search, $options: 'i' } },
-                { licenseNumber: { $regex: search, $options: 'i' } },
-                { holderName: { $regex: search, $options: 'i' } },
-                { licenseType: { $regex: search, $options: 'i' } }
-            ];
-        }
-
-        const skip = (Number(page) - 1) * Number(limit);
-        const total = await License.countDocuments(query);
-        const licenses = await License.find(query)
-            .sort({ createdAt: -1 })
-            .skip(skip)
-            .limit(Number(limit));
-
-        res.status(200).json({
-            success: true,
-            licenses: licenses,
-            total: total,
-            page: Number(page),
-            limit: Number(limit),
-            // Standard format compatibility
-            count: licenses.length,
-            data: licenses
-        });
-    } catch (error) {
-        res.status(500).json({
-            success: false,
-            message: error.message
-        });
-    }
-};
-
-// @desc    Get single license by ID or Slug
-// @route   GET /api/licenses/:id
-// @access  Public
-exports.getLicenseById = async (req, res) => {
-    try {
-        const { id } = req.params;
-        let license;
-
-        if (id.match(/^[0-9a-fA-F]{24}$/)) {
-            license = await License.findById(id).populate('relatedCourses');
-        }
-
-        if (!license) {
-            return res.status(404).json({
-                success: false,
-                message: 'License not found'
-            });
-        }
-
-        // Check if published for public users
-        const isAdmin = req.user && req.user.role === 'admin';
-        if (!isAdmin && license.status !== 'Published') {
-            return res.status(403).json({
-                success: false,
-                message: 'This license is currently not available'
-            });
-        }
-
-        res.status(200).json({
-            success: true,
-            data: license,
-            // Backwards compatibility with endpoints expecting direct object
-            ...license.toObject()
-        });
-    } catch (error) {
-        res.status(400).json({
-            success: false,
-            message: 'Error fetching license'
-        });
-    }
-};
-
-// @desc    Update license
-// @route   PUT /api/licenses/:id
-// @access  Private/Admin
-exports.updateLicense = async (req, res) => {
-    try {
-        let updateData = { ...req.body };
-
-        // Parse any stringified JSON fields from multipart/form-data if applicable
-        const fieldsToParse = ['pricing', 'locations', 'instructor', 'highlights', 'learningPoints', 'requirements', 'applicationSteps', 'pricingBreakdown', 'relatedCourses'];
-        fieldsToParse.forEach(field => {
-            if (updateData[field] && typeof updateData[field] === 'string') {
-                try {
-                    updateData[field] = JSON.parse(updateData[field]);
-                } catch (e) {}
-            }
-        });
-
-        const license = await License.findByIdAndUpdate(req.params.id, updateData, {
-            new: true,
-            runValidators: true
-        });
-
-        if (!license) {
-            return res.status(404).json({
-                success: false,
-                message: 'License not found'
-            });
-        }
-
-        res.status(200).json({
-            success: true,
-            data: license
-        });
-    } catch (error) {
-        res.status(400).json({
-            success: false,
-            message: error.message
-        });
-    }
-};
-
-// @desc    Delete license
-// @route   DELETE /api/licenses/:id
-// @access  Private/Admin
-exports.deleteLicense = async (req, res) => {
-    try {
-        const license = await License.findByIdAndDelete(req.params.id);
-
-        if (!license) {
-            return res.status(404).json({
-                success: false,
-                message: 'License not found'
-            });
-        }
-
-        res.status(200).json({
-            success: true,
-            message: 'License deleted successfully',
-            data: {}
-        });
-    } catch (error) {
-        res.status(400).json({
-            success: false,
-            message: error.message
-        });
-    }
-};
+module.exports = LicenseController;

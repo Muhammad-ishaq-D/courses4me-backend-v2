@@ -6,5 +6,6 @@ module.exports = {
   courseLocation: require('./courseLocationValidator'),
   booking: require('./bookingValidator'),
   settings: require('./settingsValidator'),
-  dashboard: require('./dashboardValidator')
+  dashboard: require('./dashboardValidator'),
+  license: require('./licenseValidator')
 };
