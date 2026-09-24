@@ -3596,6 +3596,357 @@
           ]
         }
       ]
+    },
+    {
+      "name": "15. Licences",
+      "description": "The SIA-style credentials sold alongside the courses. Reads are public; writes need {{adminToken}}. A licence carries its own venues and dated sessions, so it can be booked through `9. Bookings` exactly like a course — post the licence id as `courseId` and one of its schedule ids as `session.scheduleId`.",
+      "item": [
+        {
+          "name": "List Licences",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/licenses?category=SIA Training&status=Published&search=door&page=1&limit=10",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "licenses"
+              ],
+              "query": [
+                {
+                  "key": "category",
+                  "value": "SIA Training",
+                  "description": "SIA Training | First Aid | Health & Safety | Specialist",
+                  "disabled": true
+                },
+                {
+                  "key": "status",
+                  "value": "Published",
+                  "description": "Published | Draft | Archived (drafts need an admin token)",
+                  "disabled": true
+                },
+                {
+                  "key": "search",
+                  "value": "door",
+                  "description": "matches title, licence number, holder name or type",
+                  "disabled": true
+                },
+                {
+                  "key": "page",
+                  "value": "1",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "10",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Paginated (10 per page). The same list comes back under `data` and `licenses`, with `total`, `page` and `limit`. Without an admin token only Published licences are returned."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Licences listed\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "    pm.expect(pm.response.json().success).to.eql(true);",
+                  "});",
+                  "var body = pm.response.json();",
+                  "if (body.data && body.data[0]) { pm.collectionVariables.set(\"licenseId\", body.data[0].id); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Licence",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/licenses/{{licenseId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "licenses",
+                "{{licenseId}}"
+              ]
+            },
+            "description": "The licence is returned under `data` and also spread at the top level. Here `relatedCourses` carries the full course records rather than just their ids. A draft answers 403 without an admin token."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Request succeeded\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "    pm.expect(pm.response.json().success).to.eql(true);",
+                  "});",
+                  "var body = pm.response.json();",
+                  "if (body.data && body.data.locations && body.data.locations[0] && body.data.locations[0].schedules[0]) {",
+                  "    pm.collectionVariables.set(\"licenseScheduleId\", body.data.locations[0].schedules[0].id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create Licence",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/licenses",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "licenses"
+              ]
+            },
+            "description": "Required: title, category, shortDescription, fullDescription, pricing.basePrice. The licence number, holder id and a three-year expiry are generated, and `holderName` defaults to the title. `pricingBreakdown[].price` is free text so it prints as written (\"£220\", \"Included\").",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"SIA Door Supervisor Licence\",\n  \"licenseType\": \"Door Supervisor\",\n  \"category\": \"SIA Training\",\n  \"subtitle\": \"Work the door at licensed venues\",\n  \"shortDescription\": \"The licence you need to work as a door supervisor in the UK.\",\n  \"fullDescription\": \"What the licence covers, how to apply for it and how to renew it.\",\n  \"thumbnail\": \"https://res.cloudinary.com/demo/image/upload/sample.jpg\",\n  \"salary\": \"£12 - £16 per hour\",\n  \"duration\": \"4 Days\",\n  \"valid\": \"3 Years\",\n  \"experience\": \"5 Years\",\n  \"trainingCount\": \"12 Courses\",\n  \"rating\": \"4.9/5\",\n  \"highlights\": [\n    \"SIA approved centre\",\n    \"Exam included\",\n    \"Weekend dates available\"\n  ],\n  \"learningPoints\": [\n    \"Conflict management\",\n    \"Physical intervention\",\n    \"Emergency procedures\"\n  ],\n  \"requirements\": [\n    \"18 or over\",\n    \"Photo ID\",\n    \"Right to work in the UK\"\n  ],\n  \"applicationSteps\": [\n    {\n      \"title\": \"Complete the training\",\n      \"desc\": \"Attend the four-day course and pass the exams\"\n    },\n    {\n      \"title\": \"Apply to the SIA\",\n      \"desc\": \"Submit your application with your training certificate\"\n    },\n    {\n      \"title\": \"Receive your licence\",\n      \"desc\": \"The SIA posts your licence within 25 working days\"\n    }\n  ],\n  \"pricingBreakdown\": [\n    {\n      \"label\": \"Course fee\",\n      \"price\": \"£220\"\n    },\n    {\n      \"label\": \"SIA application\",\n      \"price\": \"£184\"\n    },\n    {\n      \"label\": \"Exam retake\",\n      \"price\": \"Included\"\n    }\n  ],\n  \"renewalInfo\": \"Apply to renew within three months of your expiry date.\",\n  \"pricing\": {\n    \"basePrice\": 220,\n    \"salePrice\": 199,\n    \"originalPrice\": 250\n  },\n  \"instructor\": {\n    \"name\": \"Jane Trainer\",\n    \"title\": \"Lead Instructor\",\n    \"bio\": \"15 years in the industry\"\n  },\n  \"relatedCourses\": [\n    \"{{courseId}}\"\n  ],\n  \"locations\": [\n    {\n      \"name\": \"London Centre\",\n      \"schedules\": [\n        {\n          \"time\": \"09:00 - 17:00\",\n          \"startDate\": \"2027-08-02\",\n          \"endDate\": \"2027-08-05\",\n          \"price\": 220,\n          \"seatsAvailable\": 12\n        }\n      ]\n    }\n  ],\n  \"status\": \"Published\",\n  \"isPopular\": true,\n  \"icon\": \"shield\",\n  \"iconColor\": \"bg-blue-600\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Licence created\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "    pm.expect(pm.response.json().success).to.eql(true);",
+                  "});",
+                  "var body = pm.response.json();",
+                  "if (body.data && body.data.id) { pm.collectionVariables.set(\"licenseId\", body.data.id); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update Licence (partial)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/licenses/{{licenseId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "licenses",
+                "{{licenseId}}"
+              ]
+            },
+            "description": "Only the fields sent change. Sending `highlights`, `learningPoints`, `requirements`, `applicationSteps`, `pricingBreakdown`, `relatedCourses` or `locations` replaces that block entirely; leaving one out keeps it.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"Draft\",\n  \"pricing\": {\n    \"basePrice\": 240\n  },\n  \"renewalInfo\": \"Renew within three months of expiry.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Licence updated\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "    pm.expect(pm.response.json().success).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update Licence (replace venues)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/licenses/{{licenseId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "licenses",
+                "{{licenseId}}"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"locations\": [\n    {\n      \"name\": \"London Centre\",\n      \"schedules\": [\n        {\n          \"time\": \"09:00 - 17:00\",\n          \"startDate\": \"2027-08-02\",\n          \"endDate\": \"2027-08-05\",\n          \"price\": 220,\n          \"seatsAvailable\": 12\n        }\n      ]\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Licence updated\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "    pm.expect(pm.response.json().success).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Delete Licence",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/licenses/{{licenseId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "licenses",
+                "{{licenseId}}"
+              ]
+            },
+            "description": "Removes the licence with its lists, steps, fee table, course links, venues and sessions."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Licence deleted\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "    pm.expect(pm.response.json().success).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Book a Licence Session",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/bookings",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "bookings"
+              ]
+            },
+            "description": "The booking endpoint takes a licence id just as it takes a course id: the booking comes back with `courseModel: \"License\"` and holds a seat on the licence session.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"courseId\": \"{{licenseId}}\",\n  \"session\": {\n    \"scheduleId\": \"{{licenseScheduleId}}\"\n  },\n  \"customerDetails\": {\n    \"firstName\": \"Test\",\n    \"lastName\": \"Student\",\n    \"email\": \"{{testEmail}}\",\n    \"phone\": \"07000000000\",\n    \"dob\": \"1990-01-01\"\n  },\n  \"billingAddress\": {\n    \"postcode\": \"SW1A 1AA\",\n    \"line1\": \"1 Test Street\",\n    \"line2\": \"\",\n    \"city\": \"London\"\n  },\n  \"packageName\": \"Standard\",\n  \"paymentMethod\": \"card\",\n  \"totalAmount\": 220\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Licence booked\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "    pm.expect(pm.response.json().success).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
     }
   ],
   "variable": [
@@ -3686,6 +4037,16 @@
     },
     {
       "key": "notificationId",
+      "value": "1",
+      "type": "string"
+    },
+    {
+      "key": "licenseId",
+      "value": "1",
+      "type": "string"
+    },
+    {
+      "key": "licenseScheduleId",
       "value": "1",
       "type": "string"
     }

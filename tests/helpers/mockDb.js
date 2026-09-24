@@ -1,6 +1,7 @@
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const { createAdminRouter } = require('./mockAdminQueries');
+const { createLicenseRouter } = require('./mockLicenseQueries');
 
 /**
  * In-memory stand-in for src/config/db.
@@ -14,7 +15,7 @@ const { createAdminRouter } = require('./mockAdminQueries');
  *   const mockDb = createMockDb({ users: [{ id: 1, email: 'a@b.c', password: 'Secret1!', role: 'admin' }] });
  *   jest.mock('../src/config/db', () => mockDb);
  */
-function createMockDb({ users = [], courses = [], locations = [], courseLocations = [], bookings = [] } = {}) {
+function createMockDb({ users = [], courses = [], locations = [], courseLocations = [], bookings = [], licenses = [] } = {}) {
   const now = () => new Date();
   const state = {
     users: [],
@@ -39,12 +40,20 @@ function createMockDb({ users = [], courses = [], locations = [], courseLocation
     bookingCertificates: [],
     notifications: [],
     settings: null,
+    licenses: [],
+    licenseListItems: [],
+    licenseSteps: [],
+    licensePricing: [],
+    licenseRelatedCourses: [],
+    licenseVenues: [],
+    licenseSchedules: [],
     seq: {
       users: 0, activity: 0, devices: 0, resets: 0, audit: 0,
       courses: 0, courseListItems: 0, courseVenues: 0, courseSchedules: 0,
       locations: 0, locationGallery: 0, courseLocations: 0, courseLocationDates: 0,
       bookings: 0, bookingExtensions: 0, bookingReschedules: 0, bookingAttendance: 0, bookingCertificates: 0,
-      notifications: 0
+      notifications: 0,
+      licenses: 0, licenseListItems: 0, licenseSteps: 0, licensePricing: 0, licenseVenues: 0, licenseSchedules: 0
     },
     tables: new Set([
       'users', 'user_activity_logs', 'user_devices', 'password_resets', 'audit_logs',
@@ -52,7 +61,9 @@ function createMockDb({ users = [], courses = [], locations = [], courseLocation
       'locations', 'location_facilities', 'location_gallery',
       'course_locations', 'course_location_dates', 'course_location_date_timings',
       'bookings', 'booking_extension_history', 'booking_reschedule_history',
-      'booking_attendance', 'booking_certificates', 'settings', 'notifications'
+      'booking_attendance', 'booking_certificates', 'settings', 'notifications',
+      'licenses', 'license_list_items', 'license_application_steps', 'license_pricing_breakdown',
+      'license_related_courses', 'license_venues', 'license_venue_schedules'
     ]),
     log: []
   };
@@ -776,6 +787,8 @@ function createMockDb({ users = [], courses = [], locations = [], courseLocation
   const where = (rows, fn) => rows.filter(fn);
 
   const routeAdmin = createAdminRouter({ state, nextId, now });
+  const licenseRouter = createLicenseRouter({ state, nextId, now });
+  licenses.forEach(licenseRouter.seedLicense);
 
   function route(sql, params = []) {
     const q = sql.replace(/\s+/g, ' ').trim();
@@ -784,6 +797,12 @@ function createMockDb({ users = [], courses = [], locations = [], courseLocation
     // ── settings, notifications and the admin dashboard ───────────────────
     const admin = routeAdmin(q, params);
     if (admin !== undefined) return admin;
+
+    // ── licences ──────────────────────────────────────────────────────────
+    if (/\blicense/.test(q)) {
+      const handled = licenseRouter.route(q, params);
+      if (handled !== undefined) return handled;
+    }
 
     // ── schema probe (tableExists) ────────────────────────────────────────
     if (/FROM information_schema\.tables/.test(q)) return state.tables.has(params[0]) ? [{ 1: 1 }] : [];
@@ -987,7 +1006,8 @@ function createMockDb({ users = [], courses = [], locations = [], courseLocation
     findUser: (email) => state.users.find(u => u.email === String(email).toLowerCase()),
     findCourse: (title) => state.courses.find(c => c.title === title),
     findLocation: (name) => state.locations.find(l => l.name === name),
-    findBooking: (reference) => state.bookings.find(b => b.booking_reference === reference)
+    findBooking: (reference) => state.bookings.find(b => b.booking_reference === reference),
+    findLicense: (title) => state.licenses.find(l => l.title === title)
   };
 }
 

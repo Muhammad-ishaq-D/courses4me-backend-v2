@@ -69,6 +69,7 @@ const BookingController = {
       const schedule = await seats.resolveSchedule({
         scheduleId: session.scheduleId,
         courseId,
+        courseType,
         startDate: session.startDate,
         locationName: session.location
       });

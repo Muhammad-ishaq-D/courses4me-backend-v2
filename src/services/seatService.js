@@ -9,17 +9,33 @@ const logger = require('../utils/logger');
  *  - `course_venue_schedule`  a schedule attached directly to the course: a seat
  *                             is taken by lowering `seats_available`, and the
  *                             availability label is kept in step.
+ *  - `license_venue_schedule` the same, for a session attached to a licence.
  *
- * Both sequences start at 1, so an id only identifies a session together with
+ * Every sequence starts at 1, so an id only identifies a session together with
  * its source, which is why bookings store both.
  */
-const SOURCES = { SCHEDULED: 'course_location_date', VENUE: 'course_venue_schedule' };
+const SOURCES = {
+  SCHEDULED: 'course_location_date',
+  VENUE: 'course_venue_schedule',
+  LICENSE_VENUE: 'license_venue_schedule'
+};
+
+/** The venue table a "…_venue_schedule" source reads from. */
+const VENUE_TABLES = {
+  [SOURCES.VENUE]: { schedules: 'course_venue_schedules', venues: 'course_venues', owner: 'course_id' },
+  [SOURCES.LICENSE_VENUE]: { schedules: 'license_venue_schedules', venues: 'license_venues', owner: 'license_id' }
+};
 
 /**
  * Finds the session the customer picked and the venue it runs at.
  * Returns null when the id belongs to another course or does not exist.
  */
-async function resolveSchedule({ scheduleId, courseId, startDate, locationName }) {
+async function resolveSchedule({ scheduleId, courseId, startDate, locationName, courseType = 'Course' }) {
+  // A licence only has its own venues; the scheduling module belongs to courses.
+  if (courseType === 'License') {
+    return resolveVenueSchedule(SOURCES.LICENSE_VENUE, { scheduleId, ownerId: courseId, startDate, locationName });
+  }
+
   if (scheduleId) {
     const scheduled = await db.query(
       `SELECT d.id, d.course_location_id, d.start_date, d.end_date, d.start_time, d.end_time,
@@ -54,22 +70,28 @@ async function resolveSchedule({ scheduleId, courseId, startDate, locationName }
   }
 
   // Sessions attached to the course itself, matched by id or by date + venue.
-  const venues = await db.query(
+  return resolveVenueSchedule(SOURCES.VENUE, { scheduleId, ownerId: courseId, startDate, locationName });
+}
+
+/** Finds a session among the venues attached to a course or a licence. */
+async function resolveVenueSchedule(source, { scheduleId, ownerId, startDate, locationName }) {
+  const table = VENUE_TABLES[source];
+  const rows = await db.query(
     `SELECT s.id, s.time, s.start_date, s.end_date, s.price, s.seats_available, v.name AS location_name
-       FROM course_venue_schedules s
-       JOIN course_venues v ON v.id = s.course_venue_id
-      WHERE v.course_id = ?
+       FROM ${table.schedules} s
+       JOIN ${table.venues} v ON v.id = s.${source === SOURCES.VENUE ? 'course_venue_id' : 'license_venue_id'}
+      WHERE v.${table.owner} = ?
       ORDER BY v.position, s.position, s.id`,
-    [courseId]
+    [ownerId]
   );
-  const match = venues.find(s =>
+  const match = rows.find(s =>
     (scheduleId && String(s.id) === String(scheduleId)) ||
     (startDate && locationName && String(s.start_date) === String(startDate).slice(0, 10) && s.location_name === locationName)
   );
   if (!match) return null;
 
   return {
-    source: SOURCES.VENUE,
+    source,
     id: match.id,
     startDate: match.start_date,
     endDate: match.end_date,
@@ -96,15 +118,16 @@ async function reserveSeat(schedule, conn = db) {
     return Math.max(0, (row.available_seats || 0) - (row.booked_seats || 0));
   }
 
+  const table = VENUE_TABLES[schedule.source].schedules;
   const result = await conn.query(
-    'UPDATE course_venue_schedules SET seats_available = seats_available - 1 WHERE id = ? AND seats_available > 0',
+    `UPDATE ${table} SET seats_available = seats_available - 1 WHERE id = ? AND seats_available > 0`,
     [schedule.id]
   );
   if (!result.affectedRows) return null;
-  const [row] = await conn.query('SELECT seats_available FROM course_venue_schedules WHERE id = ?', [schedule.id]);
+  const [row] = await conn.query(`SELECT seats_available FROM ${table} WHERE id = ?`, [schedule.id]);
   const remaining = row.seats_available;
   await conn.query(
-    'UPDATE course_venue_schedules SET availability_status = ? WHERE id = ?',
+    `UPDATE ${table} SET availability_status = ? WHERE id = ?`,
     [remaining === 0 ? 'Sold Out' : remaining <= 5 ? 'Selling Fast' : 'Available', schedule.id]
   );
   return remaining;
@@ -121,15 +144,16 @@ async function releaseSeat({ source, id }, conn = db) {
       );
       return result.affectedRows > 0;
     }
+    const table = VENUE_TABLES[source].schedules;
     const result = await conn.query(
-      'UPDATE course_venue_schedules SET seats_available = seats_available + 1 WHERE id = ?',
+      `UPDATE ${table} SET seats_available = seats_available + 1 WHERE id = ?`,
       [id]
     );
     if (!result.affectedRows) return false;
-    const [row] = await conn.query('SELECT seats_available FROM course_venue_schedules WHERE id = ?', [id]);
+    const [row] = await conn.query(`SELECT seats_available FROM ${table} WHERE id = ?`, [id]);
     const remaining = row.seats_available;
     await conn.query(
-      'UPDATE course_venue_schedules SET availability_status = ? WHERE id = ?',
+      `UPDATE ${table} SET availability_status = ? WHERE id = ?`,
       [remaining === 0 ? 'Sold Out' : remaining <= 5 ? 'Selling Fast' : 'Available', id]
     );
     return true;
@@ -147,7 +171,7 @@ async function seatsRemaining({ source, id }) {
     if (!rows.length) return null;
     return Math.max(0, (rows[0].available_seats || 0) - (rows[0].booked_seats || 0));
   }
-  const rows = await db.query('SELECT seats_available FROM course_venue_schedules WHERE id = ? LIMIT 1', [id]);
+  const rows = await db.query(`SELECT seats_available FROM ${VENUE_TABLES[source].schedules} WHERE id = ? LIMIT 1`, [id]);
   return rows.length ? rows[0].seats_available : null;
 }
 

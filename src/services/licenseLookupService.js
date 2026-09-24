@@ -1,5 +1,4 @@
 const db = require('../config/db');
-const tableExists = require('../utils/tableExists');
 const logger = require('../utils/logger');
 
 /**
@@ -7,9 +6,8 @@ const logger = require('../utils/logger');
  * the course that teaches it by matching a keyword in its title, and the
  * licence itself is returned when there is no match.
  *
- * Returns { course } when a course matched, { license } when only the licence
- * did, or null when the id is not a licence. Empty while the licences module
- * is not available.
+ * Returns { courseId } when a course matched, { license } when only the
+ * licence did, or null when the id is not a licence.
  */
 const TITLE_KEYWORDS = [
   'door supervisor',
@@ -25,8 +23,6 @@ const TITLE_KEYWORDS = [
 
 async function resolveLicense(id) {
   try {
-    if (!(await tableExists('licenses'))) return null;
-
     const rows = await db.query('SELECT * FROM licenses WHERE id = ? LIMIT 1', [id]);
     const license = rows[0];
     if (!license) return null;

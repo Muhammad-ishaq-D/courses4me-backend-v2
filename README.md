@@ -13,7 +13,7 @@ mounted in `src/app.js`.
 | Locations and course scheduling (course-locations, dates) | ready |
 | Bookings, payments (Stripe) and the payment-window job | ready |
 | Settings, notifications, dashboard and the weekly report | ready |
-| Licenses | pending |
+| Licences (bookable, with their own venues) | ready |
 | Jobs (listings, applications) | pending |
 | Reviews, Notifications, Settings, Dashboard, weekly report cron | pending |
 
@@ -59,7 +59,9 @@ Schema is managed with [Knex migrations](https://knexjs.org/guide/migrations.htm
   `locations`, `location_facilities`, `location_gallery`, `course_locations`,
   `course_location_dates`, `course_location_date_timings`, `bookings`,
   `booking_extension_history`, `booking_reschedule_history`, `booking_attendance`,
-  `booking_certificates`, `settings`, `notifications`.
+  `booking_certificates`, `settings`, `notifications`, `licenses`, `license_list_items`,
+  `license_application_steps`, `license_pricing_breakdown`, `license_related_courses`,
+  `license_venues`, `license_venue_schedules`.
 
 ## Project layout
 
@@ -81,7 +83,7 @@ src/
   validators/            Joi schemas per module (+ common building blocks)
   middlewares/           authMiddleware (protect / authorize / optionalProtect), validateMiddleware,
                          errorMiddleware, rateLimiters, requestId, parseJsonBody, upload*
-  utils/                 logger, tableExists, sendEmail, notifyAdmins, isEmailTemplateActive
+  utils/                 logger, sendEmail, notifyAdmins, isEmailTemplateActive
 database/                schema.sql baseline + knex migrations
 scripts/                 create_admin.js, update_postman_*.js
 tests/                   jest + supertest against an in-memory DB (never touches MySQL)
@@ -152,11 +154,12 @@ tests/                   jest + supertest against an in-memory DB (never touches
   localhost only when `NODE_ENV !== production`.
 - **Dependencies**: `npm audit --omit=dev` is clean; run `npm run check` before deploying.
 
-### Cross-module tables
+### Cross-module lookups
 
-`utils/tableExists.js` lets a module read a table owned by a module that is not online yet.
-Only the licences lookup still needs it (`GET /courses/:id` with a licence id, and bookings whose
-`course_type` is `License`); every other guard has been removed now that its table exists.
+`GET /courses/:id` also answers for a licence id: the licence is matched to the course that
+teaches it by a keyword in its title, and the licence itself is returned when nothing matches
+(`services/licenseLookupService.js`). Every table a module reads now exists, so the temporary
+`tableExists` probe has been removed.
 
 ## Courses
 
@@ -311,6 +314,44 @@ own price and deposit terms, and it owns the **dates** (sessions) students book.
 - The weekly summary runs on Mondays at 08:00 UTC through `weeklyReportService`, and honours the
   `weeklyReport` toggle.
 
+## Licences
+
+A licence is a product in its own right — it has its own venues and dated sessions, so a student
+books it through the same endpoint they book a course with.
+
+### Endpoints
+
+| Method | Path | Access | Notes |
+| --- | --- | --- | --- |
+| GET | `/api/licenses` | public | `?category=&status=&search=&page=&limit=` (10 per page) |
+| GET | `/api/licenses/:id` | public | 403 when not published and the caller is not an admin |
+| POST | `/api/licenses` | admin | required: `title`, `category`, `shortDescription`, `fullDescription`, `pricing.basePrice` |
+| PUT | `/api/licenses/:id` | admin | partial update (see below) |
+| DELETE | `/api/licenses/:id` | admin | removes the licence and everything under it |
+
+### Shape and storage
+
+- The listing returns the same array under **both** `data` and `licenses`, with `total`, `page`,
+  `limit` and `count`. The single-licence response is under `data` **and** spread at the top level.
+- `highlights`, `learningPoints` and `requirements` share `license_list_items` (told apart by
+  `type`, ordered by `position`); `applicationSteps`, `pricingBreakdown` and `relatedCourses`
+  each have their own table, and `locations[]` are rows in `license_venues` with their
+  `schedules[]` in `license_venue_schedules`.
+- `pricingBreakdown[].price` is free text ("£220", "Included") so the fee table prints as written.
+- **Credentials are issued on create:** `licenseNumber` (`SIA-########`), `holderId` (`LH-###`) and a
+  three-year `expiryDate`; `holderName` defaults to the licence title.
+- `relatedCourses` holds course ids in a listing and the full course records on a single licence.
+  A course that has since been deleted is skipped rather than failing the save.
+- **Partial updates:** scalars change only when sent, and each nested block is replaced only when
+  the payload contains it.
+
+### Booking a licence
+
+`POST /api/bookings` takes a licence id as `courseId` and one of its schedule ids as
+`session.scheduleId`. The booking is stored with `course_type = 'License'` and
+`session_schedule_source = 'license_venue_schedule'`, and the seat is taken from
+`license_venue_schedules` by the same atomic reservation used for courses.
+
 ## Authorization model
 
 | Role | Access |
@@ -342,6 +383,7 @@ npm run postman:courses # scripts/update_postman_courses.js — folder 6
 npm run postman:locations # scripts/update_postman_locations.js — folders 7–8
 npm run postman:bookings # scripts/update_postman_bookings.js — folders 9–11
 npm run postman:admin   # scripts/update_postman_admin.js — folders 12–14
+npm run postman:licenses # scripts/update_postman_licenses.js — folder 15
 ```
 
 Set `baseUrl`, `testEmail`/`testPassword`, `adminEmail`/`adminPassword`. Login requests

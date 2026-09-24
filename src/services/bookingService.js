@@ -1,7 +1,5 @@
 const db = require('../config/db');
 const BookingModel = require('../models/bookingModel');
-const tableExists = require('../utils/tableExists');
-const logger = require('../utils/logger');
 
 /**
  * The lifecycle status shown to students is derived from the dates, except
@@ -24,7 +22,6 @@ function calculateLifecycleStatus(booking) {
 /** The course (or licence) a booking is for, or null when it is gone. */
 async function findCourse(courseId, courseType = 'Course') {
   if (courseType === 'License') {
-    if (!(await tableExists('licenses'))) return null;
     const rows = await db.query('SELECT id, title, category, thumbnail, status FROM licenses WHERE id = ? LIMIT 1', [courseId]);
     return rows[0] || null;
   }
@@ -48,13 +45,9 @@ async function coursesForBookings(rows) {
     );
     for (const c of courses) map[`Course:${c.id}`] = c;
   }
-  if (licenseIds.length && (await tableExists('licenses'))) {
-    try {
-      const licenses = await db.query('SELECT id, title, category, thumbnail, status FROM licenses WHERE id IN (?)', [licenseIds]);
-      for (const l of licenses) map[`License:${l.id}`] = l;
-    } catch (err) {
-      logger.warn('[bookings] licence lookup failed:', err.message);
-    }
+  if (licenseIds.length) {
+    const licenses = await db.query('SELECT id, title, category, thumbnail, status FROM licenses WHERE id IN (?)', [licenseIds]);
+    for (const l of licenses) map[`License:${l.id}`] = l;
   }
   return map;
 }
