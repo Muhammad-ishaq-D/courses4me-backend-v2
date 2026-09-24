@@ -1,73 +1,52 @@
-const Notification = require('../models/Notification');
+const NotificationModel = require('../models/notificationModel');
 
-// @desc    Get all notifications for logged in user
-// @route   GET /api/notifications
-// @access  Private
-exports.getNotifications = async (req, res) => {
+const NotificationController = {
+  // @desc    The signed-in user's most recent notifications
+  // @route   GET /api/notifications
+  // @access  Private
+  async getAll(req, res, next) {
     try {
-        const notifications = await Notification.find({ user: req.user.id })
-            .sort({ createdAt: -1 })
-            .limit(20);
-
-        const unreadCount = await Notification.countDocuments({ 
-            user: req.user.id, 
-            isRead: false 
-        });
-
-        res.status(200).json({
-            success: true,
-            count: notifications.length,
-            unreadCount,
-            data: notifications
-        });
+      const [rows, unreadCount] = await Promise.all([
+        NotificationModel.findForUser(req.user.id),
+        NotificationModel.countUnread(req.user.id)
+      ]);
+      const data = rows.map(NotificationModel.toPublic);
+      res.status(200).json({ success: true, count: data.length, unreadCount, data });
     } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
+      next(error);
     }
+  },
+
+  // @desc    Mark one notification as read
+  // @route   PUT /api/notifications/:id/read
+  // @access  Private
+  async markAsRead(req, res, next) {
+    try {
+      const row = await NotificationModel.findById(req.params.id);
+      if (!row) return res.status(404).json({ success: false, message: 'Notification not found' });
+      if (String(row.user_id) !== String(req.user.id)) {
+        return res.status(401).json({ success: false, message: 'Not authorized' });
+      }
+
+      await NotificationModel.markRead(row.id);
+      const updated = await NotificationModel.findById(row.id);
+      res.status(200).json({ success: true, data: NotificationModel.toPublic(updated) });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  // @desc    Mark every notification as read
+  // @route   PUT /api/notifications/readall
+  // @access  Private
+  async markAllAsRead(req, res, next) {
+    try {
+      await NotificationModel.markAllRead(req.user.id);
+      res.status(200).json({ success: true, message: 'All notifications marked as read' });
+    } catch (error) {
+      next(error);
+    }
+  }
 };
 
-// @desc    Mark notification as read
-// @route   PUT /api/notifications/:id/read
-// @access  Private
-exports.markAsRead = async (req, res) => {
-    try {
-        const notification = await Notification.findById(req.params.id);
-
-        if (!notification) {
-            return res.status(404).json({ success: false, message: 'Notification not found' });
-        }
-
-        // Make sure notification belongs to user
-        if (notification.user.toString() !== req.user.id) {
-            return res.status(401).json({ success: false, message: 'Not authorized' });
-        }
-
-        notification.isRead = true;
-        await notification.save();
-
-        res.status(200).json({
-            success: true,
-            data: notification
-        });
-    } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
-    }
-};
-
-// @desc    Mark all notifications as read
-// @route   PUT /api/notifications/readall
-// @access  Private
-exports.markAllAsRead = async (req, res) => {
-    try {
-        await Notification.updateMany(
-            { user: req.user.id, isRead: false },
-            { isRead: true }
-        );
-
-        res.status(200).json({
-            success: true,
-            message: 'All notifications marked as read'
-        });
-    } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
-    }
-};
+module.exports = NotificationController;

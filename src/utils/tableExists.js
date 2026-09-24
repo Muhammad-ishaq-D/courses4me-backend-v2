@@ -3,10 +3,9 @@ const db = require('../config/db');
 /**
  * Cached "does this table exist?" probe.
  *
- * Auth reads a few tables owned by other modules (bookings for customer
- * stats, notifications and settings for admin alerts). While a module is not
- * online yet its table is absent, and callers use this to degrade gracefully
- * instead of failing with ER_NO_SUCH_TABLE.
+ * Used where a module reads a table owned by a module that is not online
+ * yet, so the caller can degrade gracefully instead of failing with
+ * ER_NO_SUCH_TABLE. Only the licences lookup still needs it.
  *
  * A positive answer is cached for the life of the process; a negative answer
  * is re-checked after `NEGATIVE_TTL_MS` so a newly created table is picked up

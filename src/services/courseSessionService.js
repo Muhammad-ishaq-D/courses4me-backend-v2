@@ -1,5 +1,4 @@
 const db = require('../config/db');
-const tableExists = require('../utils/tableExists');
 const logger = require('../utils/logger');
 
 /**
@@ -8,21 +7,17 @@ const logger = require('../utils/logger');
  * so a disabled location's dates never show up in a course listing.
  *
  * Returns { [courseId]: [{ _id, startDate, endDate, availabilityStatus }] }.
- * Empty while the scheduling tables are not available.
  */
 async function scheduledSessionsFor(courseIds) {
   const map = {};
   if (!courseIds.length) return map;
 
   try {
-    if (!(await tableExists('course_locations')) || !(await tableExists('course_location_dates'))) return map;
-    const hasLocations = await tableExists('locations');
-
     const rows = await db.query(
       `SELECT cl.course_id, d.id, d.start_date, d.end_date, d.available_seats, d.booked_seats
          FROM course_locations cl
          JOIN course_location_dates d ON d.course_location_id = cl.id
-         ${hasLocations ? 'JOIN locations l ON l.id = cl.location_id AND l.status = \'Active\'' : ''}
+         JOIN locations l ON l.id = cl.location_id AND l.status = 'Active'
         WHERE cl.course_id IN (?) AND cl.status = 'Active'
         ORDER BY d.start_date, d.id`,
       [courseIds]

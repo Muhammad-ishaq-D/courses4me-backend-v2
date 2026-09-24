@@ -4,5 +4,7 @@ module.exports = {
   course: require('./courseValidator'),
   location: require('./locationValidator'),
   courseLocation: require('./courseLocationValidator'),
-  booking: require('./bookingValidator')
+  booking: require('./bookingValidator'),
+  settings: require('./settingsValidator'),
+  dashboard: require('./dashboardValidator')
 };

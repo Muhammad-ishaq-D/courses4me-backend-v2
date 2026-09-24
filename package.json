@@ -15,9 +15,10 @@
     "seed:admin": "node scripts/create_admin.js",
     "postman:auth": "node scripts/update_postman_auth.js",
     "postman:courses": "node scripts/update_postman_courses.js",
-    "postman": "npm run postman:auth && npm run postman:courses && npm run postman:locations && npm run postman:bookings",
+    "postman": "npm run postman:auth && npm run postman:courses && npm run postman:locations && npm run postman:bookings && npm run postman:admin",
     "postman:locations": "node scripts/update_postman_locations.js",
-    "postman:bookings": "node scripts/update_postman_bookings.js"
+    "postman:bookings": "node scripts/update_postman_bookings.js",
+    "postman:admin": "node scripts/update_postman_admin.js"
   },
   "keywords": [
     "express",

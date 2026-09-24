@@ -1,10 +1,13 @@
 const express = require('express');
-const router = express.Router();
-const dashboardController = require('../controllers/dashboardController');
+const DashboardController = require('../controllers/dashboardController');
+const { protect, authorize } = require('../middlewares/authMiddleware');
+const { validate } = require('../middlewares/validateMiddleware');
+const validators = require('../validators');
 
-// For now, no auth middleware applied to match existing public routes or basic structure.
-// If needed, we can add `passport.authenticate('jwt', { session: false })`
-router.get('/', dashboardController.getDashboardStats);
-router.get('/analytics', dashboardController.getAnalytics);
+const router = express.Router();
+const adminOnly = [protect, authorize('admin')];
+
+router.get('/', ...adminOnly, validate(validators.dashboard.stats, 'query'), DashboardController.getStats);
+router.get('/analytics', ...adminOnly, DashboardController.getAnalytics);
 
 module.exports = router;

@@ -1,14 +1,12 @@
 const db = require('../config/db');
-const tableExists = require('../utils/tableExists');
 const logger = require('../utils/logger');
 
 /**
  * Booking statistics shown on the admin Users table
  * (totalBookings / bookingCount, totalSpent, completedCourses, attendanceStatus).
  *
- * Returns zeros while the `bookings` table is not available. Columns used:
- * bookings.user_id, bookings.customer_email, bookings.total_amount,
- * bookings.session_end_date and booking_attendance(booking_id, status).
+ * A booking counts for a customer when it is linked by id or was made as a
+ * guest with the same email address.
  */
 const EMPTY = { totalBookings: 0, bookingCount: 0, totalSpent: 0, completedCourses: 0, attendanceStatus: 'New' };
 
@@ -18,18 +16,13 @@ async function bookingStatsFor(users) {
   if (!users.length) return stats;
 
   try {
-    if (!(await tableExists('bookings'))) return stats;
-
     const ids = users.map(u => u.id);
     const emails = users.map(u => String(u.email).toLowerCase());
-    const hasAttendance = await tableExists('booking_attendance');
 
-    // A booking counts for a user when it is linked by id OR was made as a
-    // guest with the same email.
     const rows = await db.query(
       `SELECT b.id, b.user_id, LOWER(b.customer_email) AS customer_email, b.total_amount,
-              (b.session_end_date IS NOT NULL AND b.session_end_date < UTC_TIMESTAMP()) AS completed
-              ${hasAttendance ? ', EXISTS(SELECT 1 FROM booking_attendance a WHERE a.booking_id = b.id AND a.status = \'Present\') AS attended' : ', 0 AS attended'}
+              (b.session_end_date IS NOT NULL AND b.session_end_date < UTC_TIMESTAMP()) AS completed,
+              EXISTS(SELECT 1 FROM booking_attendance a WHERE a.booking_id = b.id AND a.status = 'Present') AS attended
          FROM bookings b
         WHERE b.user_id IN (?) OR LOWER(b.customer_email) IN (?)`,
       [ids, emails]

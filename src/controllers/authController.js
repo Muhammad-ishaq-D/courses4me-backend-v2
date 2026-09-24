@@ -1,7 +1,6 @@
 const UserModel = require('../models/userModel');
 const cloudinary = require('../config/cloudinary');
 const notifyAdmins = require('../utils/notifyAdmins');
-const tableExists = require('../utils/tableExists');
 const db = require('../config/db');
 const { signToken, deviceFingerprint } = require('../services/tokenService');
 const { isAdminRole, notifyPasswordChanged } = require('../services/passwordResetService');
@@ -132,7 +131,8 @@ const AuthController = {
       const email = req.body.email;
       let exists = await UserModel.emailExists(email);
 
-      if (!exists && (await tableExists('bookings'))) {
+      // A past booking made as a guest also counts as a known email.
+      if (!exists) {
         const rows = await db.query('SELECT 1 FROM bookings WHERE LOWER(customer_email) = ? LIMIT 1', [email]);
         exists = rows.length > 0;
       }

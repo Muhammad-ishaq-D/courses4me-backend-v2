@@ -12,6 +12,7 @@ mounted in `src/app.js`.
 | Courses | ready |
 | Locations and course scheduling (course-locations, dates) | ready |
 | Bookings, payments (Stripe) and the payment-window job | ready |
+| Settings, notifications, dashboard and the weekly report | ready |
 | Licenses | pending |
 | Jobs (listings, applications) | pending |
 | Reviews, Notifications, Settings, Dashboard, weekly report cron | pending |
@@ -58,7 +59,7 @@ Schema is managed with [Knex migrations](https://knexjs.org/guide/migrations.htm
   `locations`, `location_facilities`, `location_gallery`, `course_locations`,
   `course_location_dates`, `course_location_date_timings`, `bookings`,
   `booking_extension_history`, `booking_reschedule_history`, `booking_attendance`,
-  `booking_certificates`.
+  `booking_certificates`, `settings`, `notifications`.
 
 ## Project layout
 
@@ -74,7 +75,7 @@ src/
   services/              cross-cutting logic (tokenService, passwordResetService, loginLockoutService,
                          auditService, userStatsService, courseSessionService, licenseLookupService,
                          seatService, bookingService, bookingEmailService, bookingExpiryService,
-                         stripeService, cronService)
+                         stripeService, dashboardService, weeklyReportService, cronService)
                          NOTE: DATE columns are written through each model's toSqlDate() so a
                          server time zone can never move a calendar date to the day before.
   validators/            Joi schemas per module (+ common building blocks)
@@ -153,10 +154,9 @@ tests/                   jest + supertest against an in-memory DB (never touches
 
 ### Cross-module tables
 
-`utils/tableExists.js` lets auth run before later modules are online: booking stats on
-the Users page are zero until `bookings` exists; admin alerts (`notifyAdmins`) and the
-`passwordReset` email toggle (`isEmailTemplateActive`) are no-ops / fail-open until
-`notifications` and `settings` exist.
+`utils/tableExists.js` lets a module read a table owned by a module that is not online yet.
+Only the licences lookup still needs it (`GET /courses/:id` with a licence id, and bookings whose
+`course_type` is `License`); every other guard has been removed now that its table exists.
 
 ## Courses
 
@@ -279,6 +279,38 @@ own price and deposit terms, and it owns the **dates** (sessions) students book.
   `bookingEmailService` and honour the Settings > Email Templates toggles. A delivery failure is
   logged and never fails the request.
 
+## Settings, notifications and the dashboard
+
+### Endpoints
+
+| Method | Path | Access | Notes |
+| --- | --- | --- | --- |
+| GET | `/api/settings` | admin | the row is created with the defaults on first read |
+| PUT | `/api/settings` | admin | replaces only the blocks sent: `general`, `notifications`, `emailTemplates` |
+| GET | `/api/notifications` | user | the 20 most recent for the signed-in user, with `unreadCount` |
+| PUT | `/api/notifications/:id/read` | user | 401 for someone else's notification |
+| PUT | `/api/notifications/readall` | user | marks the whole feed read |
+| GET | `/api/dashboard` | admin | `?startDate=&endDate=` filters bookings and revenue only |
+| GET | `/api/dashboard/analytics` | admin | six months of customers and revenue, plus the top five courses |
+
+### What the settings control
+
+- `notifications` is a map of alert toggles. `notifyAdmins({ settingKey })` checks it before writing,
+  so switching `bookingAlerts` off stops those rows being created for every admin and editor.
+- `emailTemplates[].isActive` decides which customer emails go out (booking confirmation, receipt,
+  cancellation, course completion, password reset). An unknown key is treated as active, so mail is
+  never switched off by a typo.
+- Both fail open: with no settings row saved, every alert and email is sent.
+
+### Dashboard notes
+
+- The charts always return **six points**, so an empty month still appears on the axis.
+- `lowSeats` covers both places a session can live — the scheduling module and the schedules
+  attached to a course — and lists anything with five seats or fewer.
+- `topCourses[].rating` is `null` until the reviews module lands.
+- The weekly summary runs on Mondays at 08:00 UTC through `weeklyReportService`, and honours the
+  `weeklyReport` toggle.
+
 ## Authorization model
 
 | Role | Access |
@@ -309,6 +341,7 @@ npm run postman:auth    # scripts/update_postman_auth.js — folders 0–5
 npm run postman:courses # scripts/update_postman_courses.js — folder 6
 npm run postman:locations # scripts/update_postman_locations.js — folders 7–8
 npm run postman:bookings # scripts/update_postman_bookings.js — folders 9–11
+npm run postman:admin   # scripts/update_postman_admin.js — folders 12–14
 ```
 
 Set `baseUrl`, `testEmail`/`testPassword`, `adminEmail`/`adminPassword`. Login requests
@@ -318,7 +351,7 @@ store `token`/`adminToken`; *Verify OTP* stores `reset_token`. Test accounts onl
 
 - Logging: `src/utils/logger.js` (`LOG_LEVEL=debug|info|warn|error`); requests via morgan.
 - Cron (`src/services/cronService.js`, UTC): daily purge of password-reset rows older than 24 h,
-  and every minute the expiry of bookings whose payment window has closed. `DISABLE_CRON=true`
-  turns scheduling off.
+  every minute the expiry of bookings whose payment window has closed, and the weekly admin summary
+  on Mondays at 08:00. `DISABLE_CRON=true` turns scheduling off.
 - Transient MySQL socket resets are retried once by `db.query`; idle pool connections are
   recycled every 30 s for remote hosts.

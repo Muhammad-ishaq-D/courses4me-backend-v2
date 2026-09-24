@@ -1,50 +1,32 @@
-const Settings = require('../models/Settings');
+const SettingsModel = require('../models/settingsModel');
 
-const getOrCreateSettings = async () => {
-    let settings = await Settings.findOne();
-    if (!settings) {
-        settings = await Settings.create({});
-    }
-    return settings;
-};
-
-// @desc    Get platform settings (creates default doc if none exists)
-// @route   GET /api/settings
-// @access  Private/Admin
-exports.getSettings = async (req, res) => {
+const SettingsController = {
+  // @desc    Platform settings (created with the defaults on first read)
+  // @route   GET /api/settings
+  // @access  Private/Admin
+  async get(req, res, next) {
     try {
-        const settings = await getOrCreateSettings();
-        res.status(200).json({ success: true, data: settings });
+      const row = await SettingsModel.findOrCreate();
+      res.status(200).json({ success: true, data: SettingsModel.toPublic(row) });
     } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
+      next(error);
     }
-};
+  },
 
-// @desc    Update platform settings
-// @route   PUT /api/settings
-// @access  Private/Admin
-exports.updateSettings = async (req, res) => {
+  // @desc    Update platform settings
+  // @route   PUT /api/settings
+  // @access  Private/Admin
+  async update(req, res, next) {
     try {
-        const { general, notifications, emailTemplates } = req.body;
-        const settings = await getOrCreateSettings();
+      const row = await SettingsModel.findOrCreate();
+      await SettingsModel.update(row.id, req.body);
 
-        if (general !== undefined) {
-            settings.general = general;
-            settings.markModified('general');
-        }
-        if (notifications !== undefined) {
-            settings.notifications = notifications;
-            settings.markModified('notifications');
-        }
-        if (emailTemplates !== undefined) {
-            settings.emailTemplates = emailTemplates;
-            settings.markModified('emailTemplates');
-        }
-
-        await settings.save();
-
-        res.status(200).json({ success: true, data: settings });
+      const updated = await SettingsModel.find();
+      res.status(200).json({ success: true, data: SettingsModel.toPublic(updated) });
     } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
+      next(error);
     }
+  }
 };
+
+module.exports = SettingsController;

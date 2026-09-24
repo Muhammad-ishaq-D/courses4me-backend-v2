@@ -1,5 +1,6 @@
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
+const { createAdminRouter } = require('./mockAdminQueries');
 
 /**
  * In-memory stand-in for src/config/db.
@@ -36,11 +37,14 @@ function createMockDb({ users = [], courses = [], locations = [], courseLocation
     bookingReschedules: [],
     bookingAttendance: [],
     bookingCertificates: [],
+    notifications: [],
+    settings: null,
     seq: {
       users: 0, activity: 0, devices: 0, resets: 0, audit: 0,
       courses: 0, courseListItems: 0, courseVenues: 0, courseSchedules: 0,
       locations: 0, locationGallery: 0, courseLocations: 0, courseLocationDates: 0,
-      bookings: 0, bookingExtensions: 0, bookingReschedules: 0, bookingAttendance: 0, bookingCertificates: 0
+      bookings: 0, bookingExtensions: 0, bookingReschedules: 0, bookingAttendance: 0, bookingCertificates: 0,
+      notifications: 0
     },
     tables: new Set([
       'users', 'user_activity_logs', 'user_devices', 'password_resets', 'audit_logs',
@@ -48,7 +52,7 @@ function createMockDb({ users = [], courses = [], locations = [], courseLocation
       'locations', 'location_facilities', 'location_gallery',
       'course_locations', 'course_location_dates', 'course_location_date_timings',
       'bookings', 'booking_extension_history', 'booking_reschedule_history',
-      'booking_attendance', 'booking_certificates'
+      'booking_attendance', 'booking_certificates', 'settings', 'notifications'
     ]),
     log: []
   };
@@ -771,9 +775,15 @@ function createMockDb({ users = [], courses = [], locations = [], courseLocation
   const userRow = (u) => u ? { ...u } : null;
   const where = (rows, fn) => rows.filter(fn);
 
+  const routeAdmin = createAdminRouter({ state, nextId, now });
+
   function route(sql, params = []) {
     const q = sql.replace(/\s+/g, ' ').trim();
     state.log.push({ sql: q, params });
+
+    // ── settings, notifications and the admin dashboard ───────────────────
+    const admin = routeAdmin(q, params);
+    if (admin !== undefined) return admin;
 
     // ── schema probe (tableExists) ────────────────────────────────────────
     if (/FROM information_schema\.tables/.test(q)) return state.tables.has(params[0]) ? [{ 1: 1 }] : [];

@@ -1,10 +1,13 @@
 const express = require('express');
-const { getSettings, updateSettings } = require('../controllers/settingsController');
+const SettingsController = require('../controllers/settingsController');
 const { protect, authorize } = require('../middlewares/authMiddleware');
+const { validate } = require('../middlewares/validateMiddleware');
+const validators = require('../validators');
 
 const router = express.Router();
+const adminOnly = [protect, authorize('admin')];
 
-router.get('/', protect, authorize('admin'), getSettings);
-router.put('/', protect, authorize('admin'), updateSettings);
+router.get('/', ...adminOnly, SettingsController.get);
+router.put('/', ...adminOnly, validate(validators.settings.update), SettingsController.update);
 
 module.exports = router;

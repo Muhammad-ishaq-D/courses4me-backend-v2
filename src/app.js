@@ -22,14 +22,14 @@ const portalAuthRoutes = require('./routes/portalAuthRoutes');
 const courseRoutes = require('./routes/courseRoutes');
 const bookingRoutes = require('./routes/bookingRoutes');
 const stripeRoutes = require('./routes/stripeRoutes');
-// const notificationRoutes = require('./routes/notificationRoutes');
+const notificationRoutes = require('./routes/notificationRoutes');
 // const licenseRoutes = require('./routes/licenseRoutes');
 // const jobRoutes = require('./routes/jobRoutes');
-// const dashboardRoutes = require('./routes/dashboardRoutes');
+const dashboardRoutes = require('./routes/dashboardRoutes');
 const locationRoutes = require('./routes/locationRoutes');
 const courseLocationRoutes = require('./routes/courseLocationRoutes');
 const courseLocationDateRoutes = require('./routes/courseLocationDateRoutes');
-// const settingsRoutes = require('./routes/settingsRoutes');
+const settingsRoutes = require('./routes/settingsRoutes');
 // const reviewRoutes = require('./routes/reviewRoutes');
 
 const { errorHandler, notFoundHandler } = require('./middlewares/errorMiddleware');
@@ -148,14 +148,14 @@ app.use('/api/admin/auth', adminAuthRoutes);
 app.use('/api/portal/auth', portalAuthRoutes);
 app.use('/api/courses', courseRoutes);
 app.use('/api/bookings', bookingRoutes);
-// app.use('/api/notifications', notificationRoutes);
+app.use('/api/notifications', notificationRoutes);
 // app.use('/api/licenses', licenseRoutes);
 // app.use('/api/jobs', jobRoutes);
-// app.use('/api/dashboard', dashboardRoutes);
+app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/locations', locationRoutes);
 app.use('/api/course-locations', courseLocationRoutes);
 app.use('/api/course-location-dates', courseLocationDateRoutes);
-// app.use('/api/settings', settingsRoutes);
+app.use('/api/settings', settingsRoutes);
 // app.use('/api/reviews', reviewRoutes);
 
 // 404 for unknown paths, then the central error handler
