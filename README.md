@@ -15,7 +15,7 @@ mounted in `src/app.js`.
 | Settings, notifications, dashboard and the weekly report | ready |
 | Licences (bookable, with their own venues) | ready |
 | Jobs (vacancies and applications) | ready |
-| Reviews, Notifications, Settings, Dashboard, weekly report cron | pending |
+| Reviews | ready |
 
 ## Setup
 
@@ -40,6 +40,8 @@ Schema is managed with [Knex migrations](https://knexjs.org/guide/migrations.htm
 | `npm run migrate` | Apply every pending migration in `database/migrations/` |
 | `npm run migrate:status` | Show which migrations are applied / pending |
 | `npm run migrate:make <name>` | Create a new migration file |
+| `npm run import:legacy:dry` | Load the previous records, then roll it back (see below) |
+| `npm run import:legacy` | Load the previous records |
 
 - `database/schema.sql` is the **baseline**. `00000000000000_baseline.js` runs it on an
   empty database and skips itself when `users` already exists, so `npm run migrate` is
@@ -62,7 +64,66 @@ Schema is managed with [Knex migrations](https://knexjs.org/guide/migrations.htm
   `booking_certificates`, `settings`, `notifications`, `licenses`, `license_list_items`,
   `license_application_steps`, `license_pricing_breakdown`, `license_related_courses`,
   `license_venues`, `license_venue_schedules`, `job_listings`, `job_listing_requirements`,
-  `job_applications`.
+  `job_applications`, `reviews`.
+
+## Importing the previous data
+
+Two scripts move the live records across. They are run once, in order, and can be
+repeated at any time.
+
+**1. Take a snapshot** — in the previous backend, which is where that database is
+configured:
+
+```bash
+cd ../courses4me-backend
+node scripts/export_for_mysql.js          # writes ../legacy-export/*.json
+```
+
+Each collection becomes one JSON file, with record ids as plain 24-character strings
+and dates as ISO strings. `_manifest.json` records where the snapshot came from and
+when it was taken.
+
+**2. Load it** — here:
+
+```bash
+npm run import:legacy:dry                 # do the whole import, then undo it
+npm run import:legacy                     # keep it
+```
+
+| Option | What it does |
+| --- | --- |
+| `--dir <path>` | where the snapshot is (default `../legacy-export`) |
+| `--dry-run` | run the whole import inside a transaction, roll it back, print the summary |
+| `--only a,b` | import only these groups |
+
+Groups run in the order their references require: `users`, `locations`, `courses`,
+`courseLocations`, `courseLocationDates`, `licenses`, `bookings`, `jobListings`,
+`jobApplications`, `reviews`, `notifications`, `settings`.
+
+### What makes it safe
+
+- **All of it, or none of it.** The run is one transaction. A value that will not fit
+  or a reference that cannot be resolved aborts everything, so the database is never
+  left half-migrated. `--dry-run` performs every real insert and then rolls back, so
+  what it reports is exactly what a real run would do.
+- **Repeatable.** Every record keeps its previous id in `legacy_id` (unique on every
+  top-level table). A second run finds that row and updates it instead of inserting a
+  duplicate, so you can re-import after a fresher snapshot. Child rows — list items,
+  facilities, timings, requirements — are replaced as a set, so they never stack up.
+- **Accounts are never overwritten.** An address that already exists here is linked to
+  its previous id and otherwise left alone: the password and profile in this database
+  are the current ones. The summary counts these as `linked`.
+- **Values that do not fit are reported, not silently dropped.** A category or status
+  this database does not list falls back to the column default and the run prints a
+  line naming the record.
+- **A dropped connection is retried, not fatal.** The link to the database is remote
+  and occasionally resets mid-run. Because the whole import is one transaction, a
+  reset leaves nothing behind, so the script simply starts over — up to four attempts.
+  Only a real data problem stops it.
+
+Not carried over: `passwordresets` (one-time codes that expire within the hour, and
+the reset flow here hashes them differently) and `geocodecaches` (a lookup cache,
+rebuilt on demand).
 
 ## Project layout
 
@@ -311,7 +372,7 @@ own price and deposit terms, and it owns the **dates** (sessions) students book.
 - The charts always return **six points**, so an empty month still appears on the axis.
 - `lowSeats` covers both places a session can live — the scheduling module and the schedules
   attached to a course — and lists anything with five seats or fewer.
-- `topCourses[].rating` is `null` until the reviews module lands.
+- `topCourses[].rating` is the average review score, `null` until a course has been reviewed.
 - The weekly summary runs on Mondays at 08:00 UTC through `weeklyReportService`, and honours the
   `weeklyReport` toggle.
 
@@ -385,6 +446,23 @@ books it through the same endpoint they book a course with.
 - The listing returns the same array under `listings` and `data.listings`; the review queue under
   `applications` and `data.applications`.
 
+## Reviews
+
+| Method | Path | Access | Notes |
+| --- | --- | --- | --- |
+| POST | `/api/reviews` | user | `{ bookingId, rating, comment }`; 201 for a new review, 200 when it replaced one |
+| GET | `/api/reviews/my` | user | the customer's own reviews, newest first |
+
+- A review may only be left for a booking the signed-in customer **has paid for**; anything else
+  answers 403.
+- **One review per customer per course** (`uq_reviews_user_course`). Submitting again replaces it
+  in a single `INSERT … ON DUPLICATE KEY UPDATE`, so two submissions at once cannot both insert.
+- `course_id` has no foreign key: a review can be about a course or a licence, named by
+  `course_type` — the same pair a booking stores. The originating booking is kept
+  (`ON DELETE SET NULL`) so a review can be traced to the purchase that earned it.
+- The admins are notified on a **new** review only, gated by the `courseReview` toggle.
+- Scores feed `topCourses[].rating` and `reviewCount` on the analytics page.
+
 ## Authorization model
 
 | Role | Access |
@@ -418,6 +496,7 @@ npm run postman:bookings # scripts/update_postman_bookings.js — folders 9–11
 npm run postman:admin   # scripts/update_postman_admin.js — folders 12–14
 npm run postman:licenses # scripts/update_postman_licenses.js — folder 15
 npm run postman:jobs    # scripts/update_postman_jobs.js — folder 16
+npm run postman:reviews # scripts/update_postman_reviews.js — folder 17
 ```
 
 Set `baseUrl`, `testEmail`/`testPassword`, `adminEmail`/`adminPassword`. Login requests

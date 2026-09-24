@@ -1,75 +1,59 @@
-const Review = require('../models/Review');
-const Booking = require('../models/Booking');
+const ReviewModel = require('../models/reviewModel');
+const BookingModel = require('../models/bookingModel');
 const notifyAdmins = require('../utils/notifyAdmins');
+const { findCourse } = require('../services/bookingService');
 
-// @desc    Create or update the logged-in user's review for a booking they've paid for
-// @route   POST /api/reviews
-// @access  Private
-exports.createReview = async (req, res) => {
+const ReviewController = {
+  // @desc    Leave or update a review for a course the customer has paid for
+  // @route   POST /api/reviews
+  // @access  Private
+  async create(req, res, next) {
     try {
-        const { bookingId, rating, comment } = req.body;
+      const { bookingId, rating, comment } = req.body;
 
-        if (!bookingId || !rating) {
-            return res.status(400).json({ success: false, message: 'bookingId and rating are required.' });
-        }
-        if (rating < 1 || rating > 5) {
-            return res.status(400).json({ success: false, message: 'Rating must be between 1 and 5.' });
-        }
+      // Only the customer who paid for the booking may review its course.
+      const booking = await BookingModel.findById(bookingId);
+      if (!booking || String(booking.user_id) !== String(req.user.id) || booking.status !== 'PAID') {
+        return res.status(403).json({ success: false, message: 'You can only review courses you have booked and paid for.' });
+      }
 
-        // Only the customer who paid for this booking may review the course it's for
-        const booking = await Booking.findOne({
-            _id: bookingId,
-            user: req.user._id,
-            status: 'PAID'
-        }).populate('course', 'title');
+      const existing = await ReviewModel.findByUserAndCourse(req.user.id, booking.course_id, booking.course_type);
+      const row = await ReviewModel.save({
+        userId: req.user.id,
+        courseId: booking.course_id,
+        courseType: booking.course_type,
+        bookingId: booking.id,
+        rating,
+        comment
+      });
 
-        if (!booking) {
-            return res.status(403).json({ success: false, message: 'You can only review courses you have booked and paid for.' });
-        }
+      if (!existing) {
+        const course = await findCourse(booking.course_id, booking.course_type);
+        await notifyAdmins({
+          settingKey: 'courseReview',
+          title: 'Course Review Submitted',
+          message: `${req.user.name} left a ${rating}-star review for ${course?.title || 'a course'}.`,
+          type: 'system'
+        });
+      }
 
-        const existingReview = await Review.findOne({ user: req.user._id, course: booking.course._id || booking.course });
-
-        const review = await Review.findOneAndUpdate(
-            { user: req.user._id, course: booking.course._id || booking.course },
-            {
-                user: req.user._id,
-                course: booking.course._id || booking.course,
-                courseModel: booking.courseModel,
-                booking: booking._id,
-                rating,
-                comment
-            },
-            { upsert: true, new: true, runValidators: true }
-        );
-
-        if (!existingReview) {
-            try {
-                await notifyAdmins({
-                    settingKey: 'courseReview',
-                    title: 'Course Review Submitted',
-                    message: `${req.user.name} left a ${rating}-star review for ${booking.course?.title || 'a course'}.`,
-                    type: 'system'
-                });
-            } catch (notifErr) {
-                console.error('Notification Error (Course Review Submitted):', notifErr);
-            }
-        }
-
-        res.status(existingReview ? 200 : 201).json({ success: true, data: review });
+      res.status(existing ? 200 : 201).json({ success: true, data: ReviewModel.toPublic(row) });
     } catch (error) {
-        console.error('createReview error:', error);
-        res.status(500).json({ success: false, message: error.message });
+      next(error);
     }
+  },
+
+  // @desc    The signed-in customer's own reviews
+  // @route   GET /api/reviews/my
+  // @access  Private
+  async getMine(req, res, next) {
+    try {
+      const rows = await ReviewModel.findForUser(req.user.id);
+      res.status(200).json({ success: true, data: rows.map(ReviewModel.toPublic) });
+    } catch (error) {
+      next(error);
+    }
+  }
 };
 
-// @desc    Get the logged-in user's own reviews
-// @route   GET /api/reviews/my
-// @access  Private
-exports.getMyReviews = async (req, res) => {
-    try {
-        const reviews = await Review.find({ user: req.user._id });
-        res.status(200).json({ success: true, data: reviews });
-    } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
-    }
-};
+module.exports = ReviewController;

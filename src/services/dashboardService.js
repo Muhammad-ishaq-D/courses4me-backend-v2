@@ -1,4 +1,5 @@
 const db = require('../config/db');
+const ReviewModel = require('../models/reviewModel');
 
 /**
  * Every figure on the admin dashboard and analytics pages.
@@ -239,7 +240,10 @@ const DashboardService = {
     return fillMonths(rows, months, (r) => ({ value: r ? Number(r.value) : 0 }));
   },
 
-  /** The five courses earning the most, with their share of all revenue. */
+  /**
+   * The five courses earning the most, with their share of all revenue and
+   * their average review score (null until a course has been reviewed).
+   */
   async topCourses(limit = 5) {
     const [totals] = await db.query("SELECT COALESCE(SUM(total_amount), 0) AS total FROM bookings WHERE payment_status = 'Paid'");
     const overall = Number(totals.total) || 1;
@@ -253,6 +257,8 @@ const DashboardService = {
       [limit]
     );
 
+    const ratings = await ReviewModel.statsForCourses(rows.map(c => c.id));
+
     return rows.map((c, index) => {
       const revenue = Number(c.revenue);
       const share = Math.round((revenue / overall) * 100);
@@ -262,8 +268,8 @@ const DashboardService = {
         name: c.title,
         enrollments: Number(c.enrollments).toLocaleString(),
         revenue: `£${revenue.toLocaleString()}`,
-        // Filled in by the reviews module; no rating exists yet.
-        rating: null,
+        rating: ratings[c.id] ? ratings[c.id].average : null,
+        reviewCount: ratings[c.id] ? ratings[c.id].count : 0,
         share: share > 0 ? share : 1
       };
     });

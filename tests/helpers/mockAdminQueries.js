@@ -204,6 +204,21 @@ function createAdminRouter({ state, nextId, now }) {
       return [...totals.values()].sort((a, b) => b.revenue - a.revenue).slice(0, params[0]);
     }
 
+    // ── reviews ─────────────────────────────────────────────────────────
+    if (/AVG\(rating\) AS average/.test(q)) {
+      const ids = params[0].map(Number);
+      const type = params[1];
+      const groups = {};
+      for (const r of state.reviews.filter(x => ids.includes(x.course_id) && x.course_type === type)) {
+        (groups[r.course_id] ||= []).push(r.rating);
+      }
+      return Object.entries(groups).map(([course_id, ratings]) => ({
+        course_id: Number(course_id),
+        average: ratings.reduce((a2, b2) => a2 + b2, 0) / ratings.length,
+        total: ratings.length
+      }));
+    }
+
     // ── weekly report ───────────────────────────────────────────────────
     if (/^SELECT COUNT\(\*\) AS total FROM users WHERE created_at >= \? AND role = 'customer'/.test(q)) {
       return [{ total: state.users.filter(u => u.role === 'customer' && new Date(u.created_at) >= new Date(params[0])).length }];

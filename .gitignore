@@ -24,3 +24,7 @@ logs/
 tmp/
 temp/
 coverage/
+
+# Snapshot of the previous database — holds password hashes, addresses and CVs
+legacy-export/
+../legacy-export/

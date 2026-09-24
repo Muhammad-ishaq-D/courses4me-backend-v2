@@ -13,14 +13,17 @@
     "migrate:status": "knex migrate:status",
     "migrate:make": "knex migrate:make",
     "seed:admin": "node scripts/create_admin.js",
+    "import:legacy": "node scripts/import_legacy_data.js",
+    "import:legacy:dry": "node scripts/import_legacy_data.js --dry-run",
     "postman:auth": "node scripts/update_postman_auth.js",
     "postman:courses": "node scripts/update_postman_courses.js",
-    "postman": "npm run postman:auth && npm run postman:courses && npm run postman:locations && npm run postman:bookings && npm run postman:admin && npm run postman:licenses && npm run postman:jobs",
+    "postman": "npm run postman:auth && npm run postman:courses && npm run postman:locations && npm run postman:bookings && npm run postman:admin && npm run postman:licenses && npm run postman:jobs && npm run postman:reviews",
     "postman:locations": "node scripts/update_postman_locations.js",
     "postman:bookings": "node scripts/update_postman_bookings.js",
     "postman:admin": "node scripts/update_postman_admin.js",
     "postman:licenses": "node scripts/update_postman_licenses.js",
-    "postman:jobs": "node scripts/update_postman_jobs.js"
+    "postman:jobs": "node scripts/update_postman_jobs.js",
+    "postman:reviews": "node scripts/update_postman_reviews.js"
   },
   "keywords": [
     "express",

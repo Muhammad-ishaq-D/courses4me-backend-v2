@@ -51,6 +51,7 @@ function createMockDb({ users = [], courses = [], locations = [], courseLocation
     jobListings: [],
     jobRequirements: [],
     jobApplications: [],
+    reviews: [],
     seq: {
       users: 0, activity: 0, devices: 0, resets: 0, audit: 0,
       courses: 0, courseListItems: 0, courseVenues: 0, courseSchedules: 0,
@@ -58,7 +59,8 @@ function createMockDb({ users = [], courses = [], locations = [], courseLocation
       bookings: 0, bookingExtensions: 0, bookingReschedules: 0, bookingAttendance: 0, bookingCertificates: 0,
       notifications: 0,
       licenses: 0, licenseListItems: 0, licenseSteps: 0, licensePricing: 0, licenseVenues: 0, licenseSchedules: 0,
-      jobListings: 0, jobRequirements: 0, jobApplications: 0
+      jobListings: 0, jobRequirements: 0, jobApplications: 0,
+      reviews: 0
     },
     tables: new Set([
       'users', 'user_activity_logs', 'user_devices', 'password_resets', 'audit_logs',
@@ -69,7 +71,7 @@ function createMockDb({ users = [], courses = [], locations = [], courseLocation
       'booking_attendance', 'booking_certificates', 'settings', 'notifications',
       'licenses', 'license_list_items', 'license_application_steps', 'license_pricing_breakdown',
       'license_related_courses', 'license_venues', 'license_venue_schedules',
-      'job_listings', 'job_listing_requirements', 'job_applications'
+      'job_listings', 'job_listing_requirements', 'job_applications', 'reviews'
     ]),
     log: []
   };
@@ -819,6 +821,39 @@ function createMockDb({ users = [], courses = [], locations = [], courseLocation
       if (handled !== undefined) return handled;
     }
 
+    // ── reviews ───────────────────────────────────────────────────────────
+    if (/FROM reviews WHERE user_id = \? AND course_id = \? AND course_type = \? LIMIT 1/.test(q)) {
+      const r = state.reviews.find(x => x.user_id === Number(params[0]) && x.course_id === Number(params[1]) && x.course_type === params[2]);
+      return r ? [{ ...r }] : [];
+    }
+    if (/FROM reviews WHERE user_id = \? ORDER BY/.test(q)) {
+      return state.reviews.filter(r => r.user_id === Number(params[0]))
+        .sort((a, b) => b.created_at - a.created_at || b.id - a.id).map(r => ({ ...r }));
+    }
+    if (/FROM reviews WHERE course_id = \? AND course_type = \? ORDER BY/.test(q)) {
+      return state.reviews.filter(r => r.course_id === Number(params[0]) && r.course_type === params[1])
+        .sort((a, b) => b.created_at - a.created_at || b.id - a.id).map(r => ({ ...r }));
+    }
+    if (/FROM reviews WHERE id = \? LIMIT 1/.test(q)) {
+      const r = state.reviews.find(x => x.id === Number(params[0]));
+      return r ? [{ ...r }] : [];
+    }
+    if (/^INSERT INTO reviews /.test(q)) {
+      const [user_id, course_id, course_type, booking_id, rating, comment] = params;
+      const existing = state.reviews.find(r => r.user_id === Number(user_id) && r.course_id === Number(course_id) && r.course_type === course_type);
+      if (existing) {
+        Object.assign(existing, { booking_id: booking_id === null ? null : Number(booking_id), rating, comment, updated_at: now() });
+        return { affectedRows: 2 };
+      }
+      const id = nextId('reviews');
+      state.reviews.push({
+        id, user_id: Number(user_id), course_id: Number(course_id), course_type,
+        booking_id: booking_id === null ? null : Number(booking_id),
+        rating, comment, created_at: now(), updated_at: now()
+      });
+      return { insertId: id, affectedRows: 1 };
+    }
+
     // ── schema probe (tableExists) ────────────────────────────────────────
     if (/FROM information_schema\.tables/.test(q)) return state.tables.has(params[0]) ? [{ 1: 1 }] : [];
 
@@ -1023,7 +1058,8 @@ function createMockDb({ users = [], courses = [], locations = [], courseLocation
     findLocation: (name) => state.locations.find(l => l.name === name),
     findBooking: (reference) => state.bookings.find(b => b.booking_reference === reference),
     findLicense: (title) => state.licenses.find(l => l.title === title),
-    findJobListing: (title) => state.jobListings.find(j => j.title === title)
+    findJobListing: (title) => state.jobListings.find(j => j.title === title),
+    findReview: (userId, courseId) => state.reviews.find(r => r.user_id === userId && r.course_id === courseId)
   };
 }
 

@@ -8,5 +8,6 @@ module.exports = {
   settings: require('./settingsValidator'),
   dashboard: require('./dashboardValidator'),
   license: require('./licenseValidator'),
-  job: require('./jobValidator')
+  job: require('./jobValidator'),
+  review: require('./reviewValidator')
 };

@@ -227,8 +227,9 @@ describe('GET /api/dashboard/analytics', () => {
     expect(revenueData.reduce((acc, r) => acc + r.value, 0)).toBe(350);
 
     expect(topCourses[0]).toMatchObject({ name: 'Door Supervisor Course', enrollments: '2', revenue: '£350', share: 100 });
-    // ratings arrive with the reviews module
+    // no reviews yet, so the course has no score
     expect(topCourses[0].rating).toBeNull();
+    expect(topCourses[0].reviewCount).toBe(0);
   });
 
   it('is admin only', async () => {

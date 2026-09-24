@@ -30,7 +30,7 @@ const locationRoutes = require('./routes/locationRoutes');
 const courseLocationRoutes = require('./routes/courseLocationRoutes');
 const courseLocationDateRoutes = require('./routes/courseLocationDateRoutes');
 const settingsRoutes = require('./routes/settingsRoutes');
-// const reviewRoutes = require('./routes/reviewRoutes');
+const reviewRoutes = require('./routes/reviewRoutes');
 
 const { errorHandler, notFoundHandler } = require('./middlewares/errorMiddleware');
 const { apiLimiter, loginLimiter, forgotPasswordLimiter, verifyOtpLimiter, resetPasswordLimiter } = require('./middlewares/rateLimiters');
@@ -156,7 +156,7 @@ app.use('/api/locations', locationRoutes);
 app.use('/api/course-locations', courseLocationRoutes);
 app.use('/api/course-location-dates', courseLocationDateRoutes);
 app.use('/api/settings', settingsRoutes);
-// app.use('/api/reviews', reviewRoutes);
+app.use('/api/reviews', reviewRoutes);
 
 // 404 for unknown paths, then the central error handler
 app.use(notFoundHandler);
