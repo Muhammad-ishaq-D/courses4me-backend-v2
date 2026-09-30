@@ -34,7 +34,7 @@ const reviewRoutes = require('./routes/reviewRoutes');
 const blogRoutes = require('./routes/blogRoutes');
 
 const { errorHandler, notFoundHandler } = require('./middlewares/errorMiddleware');
-const { apiLimiter, loginLimiter, forgotPasswordLimiter, verifyOtpLimiter, resetPasswordLimiter } = require('./middlewares/rateLimiters');
+const { apiLimiter, publicReadLimiter, loginLimiter, forgotPasswordLimiter, verifyOtpLimiter, resetPasswordLimiter } = require('./middlewares/rateLimiters');
 const requestId = require('./middlewares/requestId');
 const db = require('./config/db');
 
@@ -135,7 +135,7 @@ app.get('/health', async (req, res) => {
 app.get(['/favicon.ico', '/robots.txt'], (req, res) => res.status(204).end());
 
 // ── Rate limits (per IP): a ceiling on the whole API, tighter on credentials ─
-app.use('/api', apiLimiter);
+app.use('/api', publicReadLimiter, apiLimiter);
 app.use('/api/auth/login', loginLimiter);
 app.use('/api/admin/auth/login', loginLimiter);
 app.use('/api/admin/auth/forgot-password', forgotPasswordLimiter);
