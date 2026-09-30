@@ -44,6 +44,9 @@ const SELECT = 'id, title, license_type, category, subtitle, short_description, 
   'expiry_date, created_at, updated_at';
 
 const emptyToNull = (v) => (v === '' || v === undefined ? null : v);
+// NOT NULL text columns keep a blank value as '' (the admin form sends '' when
+// a field is cleared).
+const NOT_NULL_TEXT = ['license_type', 'experience', 'training_count', 'rating', 'icon', 'icon_color', 'license_authority'];
 const toNumberOrNull = (v) => (v === null || v === undefined || v === '' ? null : Number(v));
 const toSqlDate = (v) => {
   if (v === null || v === undefined || v === '') return null;
@@ -65,7 +68,7 @@ function toColumns(data) {
   for (const [key, value] of Object.entries(data || {})) {
     if (value === undefined) continue;
     const col = COLUMNS[key];
-    if (col) out[col] = emptyToNull(value);
+    if (col) out[col] = NOT_NULL_TEXT.includes(col) ? (value ?? '') : emptyToNull(value);
   }
   if (out.is_popular !== undefined && out.is_popular !== null) {
     out.is_popular = out.is_popular === true || out.is_popular === 'true' || out.is_popular === 1 || out.is_popular === '1' ? 1 : 0;
