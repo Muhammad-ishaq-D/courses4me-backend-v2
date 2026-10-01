@@ -3,6 +3,7 @@ const logger = require('../utils/logger');
 const PasswordResetModel = require('../models/passwordResetModel');
 const { expirePendingBookings, PAYMENT_WINDOW_MINUTES } = require('./bookingExpiryService');
 const { sendWeeklyReport } = require('./weeklyReportService');
+const { clearPublicCache } = require('../middlewares/publicCache');
 
 /**
  * Scheduled jobs. Each module registers its jobs here. Times are UTC (the
@@ -28,7 +29,8 @@ const CronService = {
     // Bookings: cancel the ones whose payment window has closed
     cron.schedule('* * * * *', async () => {
       try {
-        await expirePendingBookings();
+        // Expired bookings free their seats, so cached catalogue data is out of date
+        if (await expirePendingBookings()) clearPublicCache();
       } catch (err) {
         logger.error('[CRON] booking expiry failed:', err.message);
       }

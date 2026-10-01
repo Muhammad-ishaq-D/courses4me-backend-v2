@@ -34,6 +34,7 @@ const reviewRoutes = require('./routes/reviewRoutes');
 const blogRoutes = require('./routes/blogRoutes');
 
 const { errorHandler, notFoundHandler } = require('./middlewares/errorMiddleware');
+const { publicCache } = require('./middlewares/publicCache');
 const { apiLimiter, publicReadLimiter, loginLimiter, forgotPasswordLimiter, verifyOtpLimiter, resetPasswordLimiter } = require('./middlewares/rateLimiters');
 const requestId = require('./middlewares/requestId');
 const db = require('./config/db');
@@ -94,6 +95,11 @@ app.use(helmet({
   hsts: process.env.NODE_ENV === 'production' ? { maxAge: 15552000, includeSubDomains: true } : false
 }));
 app.use(passport.initialize());
+
+// Anonymous catalogue reads are served from a short cache (see publicCache.js).
+// Mounted before every router so any write, the Stripe webhook included,
+// clears it.
+app.use('/api', publicCache);
 
 // Stripe webhooks need the raw body, so that router is mounted before express.json()
 app.use('/api/stripe', stripeRoutes);
