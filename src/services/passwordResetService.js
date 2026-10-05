@@ -132,7 +132,7 @@ async function issueResetLink(user, req) {
     ...requestMeta(req)
   });
 
-  const resetUrl = `${process.env.FRONTEND_URL}/reset-password?token=${resetToken}`;
+  const resetUrl = `${process.env.FRONTEND_URL || 'https://courses4me.co.uk'}/reset-password?token=${resetToken}`;
   deliverInBackground(req, user, id, {
     email: user.email,
     subject: 'Password Reset Request',

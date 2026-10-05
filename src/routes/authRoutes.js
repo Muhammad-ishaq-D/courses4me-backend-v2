@@ -34,9 +34,11 @@ router.delete('/users/:id/history', ...adminOnly, validate(auth.idParam, 'params
 // on the way back, with the JWT in ?token=.
 const encodeState = (redirect) => (redirect ? Buffer.from(JSON.stringify({ redirect })).toString('base64') : undefined);
 
+const site = () => process.env.FRONTEND_URL || 'https://courses4me.co.uk';
+
 const redirectWithToken = (req, res) => {
   const token = signToken(req.user);
-  let redirectUrl = `${process.env.FRONTEND_URL}/dashboard`;
+  let redirectUrl = `${site()}/dashboard`;
 
   if (req.query.state) {
     try {
@@ -44,7 +46,7 @@ const redirectWithToken = (req, res) => {
       if (state.redirect && typeof state.redirect === 'string') {
         // Only same-site paths: prevents open redirects
         const path = state.redirect.startsWith('/') ? state.redirect : `/${state.redirect}`;
-        if (!path.startsWith('//')) redirectUrl = `${process.env.FRONTEND_URL}${path}`;
+        if (!path.startsWith('//')) redirectUrl = `${site()}${path}`;
       }
     } catch (e) {
       // malformed state: fall through to the dashboard
@@ -55,7 +57,7 @@ const redirectWithToken = (req, res) => {
   res.redirect(`${redirectUrl}${separator}token=${token}`);
 };
 
-const failureRedirect = () => `${process.env.FRONTEND_URL}/signin`;
+const failureRedirect = () => `${site()}/signin`;
 
 router.get('/google', (req, res, next) => {
   passport.authenticate('google', { scope: ['profile', 'email'], state: encodeState(req.query.redirect) })(req, res, next);
